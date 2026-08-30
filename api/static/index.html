@@ -141,8 +141,10 @@
   </form>
 
   <form id="lookup-form">
-    <input id="set-code" placeholder="Set code (e.g. hob)" autocomplete="off" required>
-    <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off" required>
+    <select id="set-code" required>
+      <option value="">Select set code</option>
+    </select>
+    <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
     <button id="submit-btn" type="submit">Look up</button>
   </form>
   <p class="hint">Set code is Scryfall's (e.g. "hob", "eld") -- not Hareruya's internal numeric cardset id.</p>

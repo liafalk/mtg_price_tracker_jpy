@@ -70,6 +70,18 @@ def _bucket_key(price: Price) -> str:
     return f"{lang}_{'foil' if price.foil else 'nonfoil'}"
 
 
+@app.get("/api/sets")
+def list_set_codes() -> dict[str, list[str]]:
+    with SessionLocal() as session:
+        set_codes = session.execute(
+            select(Printing.set_code)
+            .where(Printing.set_code.is_not(None))
+            .distinct()
+            .order_by(Printing.set_code.asc())
+        ).scalars().all()
+    return {"sets": [code.lower() for code in set_codes if code]}
+
+
 @app.get("/api/search")
 def search_cards(query: str = Query(..., alias="q")) -> dict[str, Any]:
     term = query.strip()
@@ -88,6 +100,52 @@ def search_cards(query: str = Query(..., alias="q")) -> dict[str, Any]:
             )
             .order_by(Printing.name_en.asc(), Printing.name_jp.asc())
             .limit(200)
+        ).scalars().all()
+
+        if not rows:
+            return {"results": []}
+
+        latest_prices = {}
+        all_prices = session.execute(
+            select(Price)
+            .where(Price.printing_id.in_([row.id for row in rows]))
+            .order_by(Price.printing_id.asc(), Price.fetched_at.desc())
+        ).scalars().all()
+        for price in all_prices:
+            bucket = _bucket_key(price)
+            latest_prices.setdefault(price.printing_id, {})
+            latest_prices[price.printing_id].setdefault(bucket, price.price_yen)
+
+        results = [
+            {
+                "id": row.id,
+                "set_code": row.set_code,
+                "collector_number": row.collector_number,
+                "name_en": row.name_en,
+                "name_jp": row.name_jp,
+                "rarity": row.rarity,
+                "thumb": row.img_thumb_uri or row.img_thumb_uri_jp,
+                "thumb_jp": row.img_thumb_uri_jp,
+                "recent_prices": latest_prices.get(row.id, {}),
+                "detail_url": f"/card/{row.set_code}/{row.collector_number}",
+            }
+            for row in rows
+        ]
+
+    return {"results": results}
+
+
+@app.get("/api/set_cards")
+def get_cards_for_set(set_code: str = Query(..., alias="set")) -> dict[str, Any]:
+    set_code = set_code.strip().lower()
+    if not set_code:
+        return {"results": []}
+
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(Printing)
+            .where(Printing.set_code == set_code)
+            .order_by(Printing.name_en.asc(), Printing.collector_number.asc())
         ).scalars().all()
 
         if not rows:

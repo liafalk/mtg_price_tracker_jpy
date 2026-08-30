@@ -212,6 +212,43 @@ than lowering it, and don't parallelize the crawl. See the code
 comments in `hareruya_client.py` and `tiering.py` for the reasoning
 behind the specific numbers chosen.
 
+## Production deployment notes
+
+For a real server, run Postgres in Docker and back it up outside the container. The repo already uses a named volume in [docker-compose.yml](docker-compose.yml), but a Docker volume is not a backup strategy on its own.
+
+### Recommended backup flow
+
+- Keep the live DB in the `db_data` volume
+- Run `scripts/backup_db.sh` on a schedule
+- Store backups on the host at `/var/backups/jpy-mtg`
+- Keep the last 14 days of compressed dumps
+
+Example:
+
+```bash
+chmod +x scripts/backup_db.sh scripts/restore_db.sh
+cp .env.example .env
+sudo mkdir -p /var/backups/jpy-mtg
+sudo chown $USER /var/backups/jpy-mtg
+./scripts/backup_db.sh
+```
+
+Then add a cron entry:
+
+```cron
+0 */6 * * * /path/to/hareruya_scraper/scripts/backup_db.sh >> /var/log/jpy-mtg-backup.log 2>&1
+```
+
+### Restore
+
+```bash
+./scripts/restore_db.sh /var/backups/jpy-mtg/jpy_mtg_prices-20260830T020000Z.sql.gz
+```
+
+### Production environment
+
+Use a real `.env` file instead of hard-coded secrets. Keep the DB and app separated by Docker networking, expose only the web port, and keep the database port closed to the public unless you specifically need direct access.
+
 ## Project layout
 
 ```

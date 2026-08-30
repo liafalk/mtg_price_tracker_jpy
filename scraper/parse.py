@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+import logging
 
-_COLLECTOR_NUMBER_RE = re.compile(r"^(?:【Foil】)?\((\d+)\)")
+_COLLECTOR_NUMBER_RE = re.compile(r"\((\d+)\)")
+
+logger = logging.getLogger(__name__)
+
 
 # Hareruya zero-pads collector numbers in product names (e.g. "(099)"),
 # Scryfall does not (e.g. "99"). Since Scryfall is the identity source
@@ -49,7 +53,7 @@ _LANGUAGE_MAP = {"1": "jp", "2": "en"}
 
 
 def extract_collector_number(product_name: str) -> str | None:
-    match = _COLLECTOR_NUMBER_RE.match(product_name.strip())
+    match = _COLLECTOR_NUMBER_RE.search(product_name.strip())
     return match.group(1) if match else None
 
 
@@ -78,6 +82,7 @@ def parse_doc(doc: dict) -> ParsedDoc:
     )
 
     if raw_collector_number is None:
+        logger.warning("Could not extract collector number for product=%s in set=%s; skipping", doc.get("product"), doc.get("cardset"))
         return None
 
     return ParsedDoc(
