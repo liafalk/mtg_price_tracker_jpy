@@ -17,6 +17,20 @@ from dataclasses import dataclass
 
 _COLLECTOR_NUMBER_RE = re.compile(r"^\((\d+)\)")
 
+# Hareruya zero-pads collector numbers in product names (e.g. "(099)"),
+# Scryfall does not (e.g. "99"). Since Scryfall is the identity source
+# of truth (see sync_scryfall.py), we normalize to Scryfall's convention
+# so lookups against `printings.collector_number` actually match.
+_LEADING_ZEROS_RE = re.compile(r"^0*(\d+)(.*)$")
+
+
+def normalize_collector_number(collector_number: str) -> str:
+    match = _LEADING_ZEROS_RE.match(collector_number.strip())
+    if match:
+        digits, suffix = match.groups()
+        return f"{digits}{suffix}"
+    return collector_number
+
 
 @dataclass
 class ParsedDoc:
@@ -44,8 +58,11 @@ def parse_doc(doc: dict) -> ParsedDoc:
     product_name = doc.get("product_name", "") or ""
     product_name_en = doc.get("product_name_en", "") or ""
 
-    collector_number = extract_collector_number(product_name) or extract_collector_number(
+    raw_collector_number = extract_collector_number(product_name) or extract_collector_number(
         product_name_en
+    )
+    collector_number = (
+        normalize_collector_number(raw_collector_number) if raw_collector_number else None
     )
 
     return ParsedDoc(

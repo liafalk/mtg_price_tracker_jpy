@@ -1,7 +1,12 @@
 """
 Ties the pieces together: for a given Set, page through Hareruya's
-results (via HareruyaClient), parse each doc, and upsert
-Printing/Price rows.
+results (via HareruyaClient), parse each doc, and append Price rows.
+
+Scryfall is the source of truth for card identity (see
+scraper/sync_scryfall.py) -- this module never creates a Printing.
+It only looks one up by (set, collector_number) and, if found, records
+a price observation against it. Run sync_scryfall.py before this, or
+every doc will fail to match and nothing will be written.
 
 Run as a script for a manual/one-off crawl, or import `crawl_set`
 into a worker for the scheduled version.
@@ -22,9 +27,17 @@ from scraper.parse import ParsedDoc, parse_docs
 logger = logging.getLogger(__name__)
 
 
-def _get_or_create_printing(
-    session: Session, set_row: Set, doc: ParsedDoc
-) -> Printing | None:
+def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | None:
+    """Look up the printing this price observation belongs to.
+
+    Scryfall (via sync_scryfall.py) is the source of truth for which
+    printings exist -- this function only *matches* against that, it
+    never creates a Printing from Hareruya data. A miss here means
+    either the printings table hasn't been synced from Scryfall yet,
+    or a genuine identity mismatch (see module docstring), and either
+    way the price observation is dropped rather than guessed into a
+    new row.
+    """
     if doc.collector_number is None:
         logger.warning(
             "Could not extract collector number for product=%s in set=%s; skipping",
@@ -38,16 +51,12 @@ def _get_or_create_printing(
         .one_or_none()
     )
     if printing is None:
-        printing = Printing(
-            set_id=set_row.id,
-            collector_number=doc.collector_number,
-            name_en=doc.name_en,
+        logger.warning(
+            "No matching Scryfall printing for set=%s collector_number=%s "
+            "(product=%s) -- run sync_scryfall first, or this is a genuine "
+            "mismatch worth checking by hand",
+            set_row.hareruya_product_code, doc.collector_number, doc.hareruya_product_id,
         )
-        session.add(printing)
-        session.flush()  # assign printing.id without a full commit
-    elif doc.name_en and not printing.name_en:
-        printing.name_en = doc.name_en
-
     return printing
 
 
@@ -58,7 +67,7 @@ async def crawl_set(
     *,
     non_foil_only: bool = True,
 ) -> int:
-    """Crawl every page for one set, writing Printing/Price rows.
+    """Crawl every page for one set, appending Price rows for matched printings.
 
     Returns the number of price observations written.
     """
@@ -73,9 +82,11 @@ async def crawl_set(
     now = dt.datetime.utcnow()
     written = 0
 
+    unmatched = 0
     for doc in parsed:
-        printing = _get_or_create_printing(session, set_row, doc)
+        printing = _get_printing(session, set_row, doc)
         if printing is None:
+            unmatched += 1
             continue
 
         session.add(
@@ -97,9 +108,14 @@ async def crawl_set(
     session.commit()
 
     logger.info(
-        "Crawled set %s (%s): %d price rows written",
-        set_row.hareruya_product_code, set_row.hareruya_cardset_id, written,
+        "Crawled set %s (%s): %d price rows written, %d docs unmatched",
+        set_row.hareruya_product_code, set_row.hareruya_cardset_id, written, unmatched,
     )
+    if unmatched and written == 0:
+        logger.warning(
+            "Every doc in this set failed to match a printing -- have you "
+            "run sync_scryfall.py for this set yet?"
+        )
     return written
 
 

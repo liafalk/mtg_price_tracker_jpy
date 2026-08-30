@@ -10,6 +10,43 @@ Early scaffold. Working: set discovery, rate-limited crawling, parsing,
 tiered scheduling, storage. Not yet built: Scryfall identity matching and
 an API/frontend to actually browse the data.
 
+## Source of truth
+
+**Scryfall is the source of truth for card identity.** `printings`
+rows are created only from Scryfall's bulk data export
+(`scraper/sync_scryfall.py`) — set, collector number, name, rarity,
+Scryfall id/images. Hareruya is used *only* to update the `prices`
+table against printings that already exist; the crawler never creates
+a printing from Hareruya data. If a Hareruya listing doesn't match an
+existing printing (wrong set mapping, a genuinely new set not yet
+synced from Scryfall, a numbering mismatch), that price observation is
+logged and dropped rather than guessed into a new row.
+
+This means the setup order matters:
+
+1. `sync_sets.py` — pulls Hareruya's set list, gives you `cardset` ids
+   and `product` codes.
+2. `sync_scryfall.py` — resolves each set's Scryfall set code from its
+   Hareruya product code, then populates `printings` from Scryfall's
+   bulk data for every matched set.
+3. `crawl.py` / `daily_run.py` — crawls Hareruya prices and attaches
+   them to the printings created in step 2.
+
+Running the price crawler before syncing Scryfall for a given set
+means every doc in that set fails to match and nothing gets written —
+`crawl.py` logs this loudly rather than failing silently.
+
+### Collector number normalization
+
+Hareruya zero-pads collector numbers in its product names (`"(099)"`),
+Scryfall does not (`"99"`). Since Scryfall printings are the join
+target, `scraper/parse.py` strips leading zeros from whatever Hareruya
+gives us (`normalize_collector_number`) before any lookup happens.
+Numeric-with-suffix numbers (`"099a"` → `"99a"`) are handled the same
+way. If a set's numbering doesn't follow this pattern, matches for
+that set will silently fail rather than blow up — check the crawl logs
+for unmatched-doc warnings.
+
 ## How it works
 
 Hareruya's storefront calls two endpoints when you filter its product
@@ -65,8 +102,10 @@ scraper/
   hareruya_client.py       # rate-limited /query -> /unisearch_api client
   parse.py                 # raw doc -> ParsedDoc (collector number, price, etc.)
   sync_sets.py             # sideMenuList.json -> sets table
+  sync_scryfall.py         # Scryfall bulk data -> printings table (identity source of truth)
+  sync_all.py              # convenience: runs sync_sets + sync_scryfall in one command
   tiering.py               # hot/warm/cold assignment + today's crawl list
-  crawl.py                 # crawl a set, upsert printings/prices
+  crawl.py                 # crawl Hareruya prices, attach to existing printings
   daily_run.py             # daily entrypoint: retier -> pick sets -> crawl
 requirements.txt
 ```
@@ -83,30 +122,39 @@ python db.py                      # creates tables
 
 ## Usage
 
-Sync the sets table (run occasionally — weekly is plenty, new sets
-don't appear often):
+**Quick start** — syncs sets and printings in one command (do this
+first, and again whenever new sets are released; weekly is plenty):
 
 ```bash
-python -c "
-import asyncio
-from db import SessionLocal
-from scraper.sync_sets import run
-
-with SessionLocal() as session:
-    asyncio.run(run(session))
-"
+python -m scraper.sync_all
 ```
 
-Crawl one set manually, by its Hareruya `cardset` id (find it via the
-`sets` table after syncing, or from a `cardset=` query param on the
-site):
+That's `sync_sets` (Hareruya's set list) followed by `sync_scryfall`
+(resolves Scryfall set codes, then populates `printings` from
+Scryfall's bulk data). Check the logs for sets that couldn't be
+auto-mapped (`no direct match`) — those need a manual
+`scryfall_set_code` set by hand before their printings will populate.
+The Scryfall download is sizeable (several hundred MB); expect the
+first run to take a few minutes.
+
+If you'd rather run the two steps separately (e.g. to re-sync sets
+without re-downloading Scryfall's bulk data):
+
+```bash
+python -m scraper.sync_sets       # sets table only
+python -m scraper.sync_scryfall   # printings table only
+```
+
+Once sets/printings are synced, **crawl prices** for one set manually,
+by its Hareruya `cardset` id (find it via the `sets` table, or from a
+`cardset=` query param on the site):
 
 ```bash
 python -m scraper.crawl 426   # e.g. 426 = Hobbit (HOB)
 ```
 
-Run the full tiered daily crawl (intended to be invoked by cron /
-systemd timer once a day):
+**Run the full tiered daily crawl** (intended to be invoked by cron
+/ systemd timer once a day):
 
 ```bash
 python -m scraper.daily_run
@@ -115,12 +163,12 @@ python -m scraper.daily_run
 ## Data model
 
 - **`sets`** — one row per Hareruya `cardset`. Carries the Japanese
-  name, release date, assigned tier, and (once wired up) the matching
-  Scryfall set code.
-- **`printings`** — one row per `(set, collector_number)`. Collector
-  number is parsed out of the leading `"(123)"` in Hareruya's
-  `product_name` field, since it isn't a dedicated field in the API
-  response.
+  name, release date, assigned tier, and the matching Scryfall set
+  code (resolved by `sync_scryfall.resolve_scryfall_set_codes`).
+- **`printings`** — one row per `(set, collector_number)`, created
+  *only* from Scryfall's bulk data. Carries `scryfall_id`, name,
+  rarity — the identity fields Hareruya's crawler matches against but
+  never writes.
 - **`prices`** — append-only log of price observations, one row per
   crawl per `(printing, language)`. Includes `stock` and
   `weekly_sales`, which are useful signals for spotting movement beyond
@@ -129,15 +177,12 @@ python -m scraper.daily_run
 
 ## Not yet built
 
-- **Scryfall join.** Match `printings` to Scryfall's bulk data dump
-  (free daily JSON export) on `(scryfall_set_code, collector_number)`
-  to backfill `scryfall_id`, card images, and oracle text. The
-  `product=[XXX]` code captured in `sets.hareruya_product_code` is
-  intended as the join key against Scryfall's set codes, though a few
-  sets (Booster Fun variants, retro-frame sets, etc.) may need manual
-  mapping — spot-check before trusting it blindly.
 - **API layer.** A thin FastAPI app serving the local DB (never hits
   Hareruya on a user request — only the scheduled crawl does).
 - **Foil prices.** The crawler currently defaults to non-foil only
   (`foil_flg=[0]`) to keep initial scope small; foil is a straightforward
   second pass once the base pipeline is validated.
+- **Manual set-code overrides.** Sets that don't auto-resolve against
+  Scryfall (Booster Fun variants, retro frames, a handful of older
+  products) currently need their `scryfall_set_code` set by hand;
+  there's no override file/table yet, just direct DB edits.

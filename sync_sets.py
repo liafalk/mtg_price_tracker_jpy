@@ -143,3 +143,14 @@ async def run(session: Session) -> None:
     tree = await fetch_side_menu()
     rows = extract_set_rows(tree)
     upsert_sets(session, rows)
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    from db import SessionLocal
+
+    logging.basicConfig(level=logging.INFO)
+
+    with SessionLocal() as session:
+        asyncio.run(run(session))
