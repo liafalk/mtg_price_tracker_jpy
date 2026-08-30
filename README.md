@@ -47,6 +47,34 @@ way. If a set's numbering doesn't follow this pattern, matches for
 that set will silently fail rather than blow up — check the crawl logs
 for unmatched-doc warnings.
 
+### Booster Fun ("-BF") sets
+
+Hareruya sells showcase/extended-art/borderless variants as a
+separate product line with its own `cardset` id — e.g. `HOB` (base
+set) and `HOB-BF` (Booster Fun) are two different Hareruya sets.
+Scryfall doesn't work that way: it has no separate set code for these
+treatments, they're catalogued inside the *base* set and distinguished
+by `promo_types` containing `"boosterfun"` (confirmed by Scryfall's
+own `is:boosterfun` search filter, e.g. `set:eld is:boosterfun`).
+
+So `sync_scryfall.py` resolves a `-BF` Hareruya set to the *same*
+`scryfall_set_code` as its base set (stripping the suffix before
+matching), rather than looking for a `hob-bf` that doesn't exist. That
+means two local `Set` rows legitimately share one Scryfall code —
+`sync_printings` handles this by checking each card's `promo_types`:
+boosterfun-tagged cards are assigned to the local `-BF` set, everything
+else to the base set. If only one of the two local sets is actually
+tracked (e.g. you never synced the `-BF` product from Hareruya), all
+matching cards fall back to whichever one exists.
+
+This same base-set-sharing behavior likely applies to other Hareruya
+suffix conventions (e.g. `-Retro` for retro-frame sets) — not yet
+handled, since retro frames use a different Scryfall mechanism
+(frame/border metadata, not `promo_types`) that hasn't been verified
+here. Sets like that will currently show up as unresolved in
+`resolve_scryfall_set_codes` logs rather than being silently
+mismatched.
+
 ## How it works
 
 Hareruya's storefront calls two endpoints when you filter its product

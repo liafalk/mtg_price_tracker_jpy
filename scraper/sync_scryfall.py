@@ -52,6 +52,22 @@ async def _get_bulk_data_download_uri(client: httpx.AsyncClient) -> str:
     raise ValueError(f"No bulk-data entry of type {BULK_DATA_TYPE!r} found")
 
 
+_BOOSTER_FUN_SUFFIX = "-BF"
+
+
+def _strip_booster_fun_suffix(hareruya_product_code: str) -> str:
+    if hareruya_product_code.upper().endswith(_BOOSTER_FUN_SUFFIX):
+        return hareruya_product_code[: -len(_BOOSTER_FUN_SUFFIX)]
+    return hareruya_product_code
+
+
+def _is_booster_fun_set(set_row: Set) -> bool:
+    return bool(
+        set_row.hareruya_product_code
+        and set_row.hareruya_product_code.upper().endswith(_BOOSTER_FUN_SUFFIX)
+    )
+
+
 async def _fetch_all_scryfall_set_codes(client: httpx.AsyncClient) -> set[str]:
     resp = await client.get(SETS_URL, headers=REQUEST_HEADERS)
     resp.raise_for_status()
@@ -61,13 +77,23 @@ async def _fetch_all_scryfall_set_codes(client: httpx.AsyncClient) -> set[str]:
 async def resolve_scryfall_set_codes(session: Session) -> None:
     """Fill in `sets.scryfall_set_code` for any Set missing it.
 
-    Hareruya's `product` code (e.g. "HOB", "HOB-BF", "3EDBB") usually
-    matches a Scryfall set code when lowercased, but not always --
-    Booster Fun ("-BF"), retro-frame, and a handful of older/alternate
-    products use different conventions on each side. We only accept the
-    lowercase match when it's a *confirmed* real Scryfall set code;
-    anything that doesn't match is left null and logged for manual
-    mapping rather than silently guessed.
+    Hareruya's `product` code (e.g. "HOB", "3EDBB") usually matches a
+    Scryfall set code when lowercased, but not always -- retro-frame
+    and a handful of older/alternate products use different
+    conventions on each side.
+
+    Booster Fun variants ("HOB-BF") are a special case, not a mapping
+    gap: Scryfall doesn't mint separate set codes for showcase/
+    extended-art/borderless treatments -- they're catalogued inside the
+    *base* set (confirmed by Scryfall's own `is:boosterfun` search
+    filter, e.g. `set:eld is:boosterfun` returns Eldraine cards, not
+    cards in some other set). So a "-BF" Hareruya product code
+    resolves to the same scryfall_set_code as its base set, and two
+    local `Set` rows end up sharing one Scryfall code. sync_printings
+    below disambiguates between them using each card's promo_types.
+
+    Anything else that doesn't match is left null and logged for
+    manual mapping rather than silently guessed.
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         valid_codes = await _fetch_all_scryfall_set_codes(client)
@@ -79,7 +105,8 @@ async def resolve_scryfall_set_codes(session: Session) -> None:
         if set_row.scryfall_set_code or not set_row.hareruya_product_code:
             continue
 
-        candidate = set_row.hareruya_product_code.lower()
+        base_code = _strip_booster_fun_suffix(set_row.hareruya_product_code)
+        candidate = base_code.lower()
         if candidate in valid_codes:
             set_row.scryfall_set_code = candidate
             resolved += 1
@@ -131,14 +158,58 @@ def _relevant_rows(cards: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         yield card
 
 
-def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
-    sets_by_code = {
-        s.scryfall_set_code: s
-        for s in session.execute(select(Set)).scalars().all()
-        if s.scryfall_set_code
-    }
+def _card_is_booster_fun(card: dict[str, Any]) -> bool:
+    """Mirrors Scryfall's own `is:boosterfun` search filter: true for
+    showcase/extended-art/borderless alternate treatments sold
+    specifically as Collector Booster chase versions of a card that
+    also has a normal-frame printing in the same set."""
+    return "boosterfun" in (card.get("promo_types") or [])
 
-    if not sets_by_code:
+
+def _build_set_resolver(
+    session: Session,
+) -> tuple[dict[str, Set], dict[str, Set]]:
+    """Groups local Set rows by shared scryfall_set_code, splitting
+    each group into its "primary" (normal-frame) and "booster fun"
+    entry where both exist.
+
+    Returns (primary_by_code, booster_fun_by_code) -- either dict may
+    be missing a given code if that variant isn't tracked locally.
+    """
+    primary_by_code: dict[str, Set] = {}
+    booster_fun_by_code: dict[str, Set] = {}
+
+    for set_row in session.execute(select(Set)).scalars().all():
+        if not set_row.scryfall_set_code:
+            continue
+        if _is_booster_fun_set(set_row):
+            booster_fun_by_code[set_row.scryfall_set_code] = set_row
+        else:
+            primary_by_code[set_row.scryfall_set_code] = set_row
+
+    return primary_by_code, booster_fun_by_code
+
+
+def _resolve_local_set(
+    card: dict[str, Any],
+    primary_by_code: dict[str, Set],
+    booster_fun_by_code: dict[str, Set],
+) -> Set | None:
+    set_code = card["set"]
+
+    if _card_is_booster_fun(card):
+        # Prefer the dedicated Booster Fun product if we track it
+        # separately; fall back to the primary set if we don't (better
+        # to have the price land somewhere sensible than drop it).
+        return booster_fun_by_code.get(set_code) or primary_by_code.get(set_code)
+
+    return primary_by_code.get(set_code)
+
+
+def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
+    primary_by_code, booster_fun_by_code = _build_set_resolver(session)
+
+    if not primary_by_code and not booster_fun_by_code:
         logger.warning(
             "No sets have scryfall_set_code populated -- run "
             "resolve_scryfall_set_codes() first, or nothing will match."
@@ -154,10 +225,9 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
     unmatched_sets: set[str] = set()
 
     for card in _relevant_rows(cards):
-        set_code = card["set"]
-        set_row = sets_by_code.get(set_code)
+        set_row = _resolve_local_set(card, primary_by_code, booster_fun_by_code)
         if set_row is None:
-            unmatched_sets.add(set_code)
+            unmatched_sets.add(card["set"])
             continue
 
         key = (set_row.id, card["collector_number"])
