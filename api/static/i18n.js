@@ -20,7 +20,16 @@ window.I18N = {
         uncommon: 'Uncommon',
         rare: 'Rare',
         mythic: 'Mythic Rare'
-    }
+    },
+    inventoryQtyLabel: 'qty',
+    inventoryPriceLabel: 'price',
+    marketPrice: 'Market price',
+    inventory: 'Inventory',
+    save: 'Save',
+    languageEn: 'EN',
+    languageJp: 'JP',
+    inventoryNonFoil: 'Non-foil',
+    inventoryFoil: 'Foil'
   },
   ja: {
     pageTitle: 'JPY MTG カード価格',
@@ -43,6 +52,15 @@ window.I18N = {
         uncommon: 'アンコモン',
         rare: 'レア',
         mythic: '神話レア'
-    }
+    },
+    inventoryQtyLabel: '数',
+    inventoryPriceLabel: '価',
+    marketPrice: '市場価格',
+    inventory: '在庫',
+    save: '保存',
+    languageEn: 'EN',
+    languageJp: 'JP',
+    inventoryNonFoil: '通常版',
+    inventoryFoil: 'Foil'
   }
 };

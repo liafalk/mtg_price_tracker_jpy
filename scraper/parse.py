@@ -12,6 +12,7 @@ generally cleaner for that.
 
 from __future__ import annotations
 
+import enum
 import re
 from dataclasses import dataclass
 import logging
@@ -34,6 +35,10 @@ def normalize_collector_number(collector_number: str) -> str:
         return f"{digits}{suffix}"
     return collector_number
 
+class PromoType(enum.Enum):
+    none = 0
+    promo = 1
+    prerelease = 2
 
 @dataclass
 class ParsedDoc:
@@ -47,6 +52,7 @@ class ParsedDoc:
     weekly_sales: int
     foil: bool
     card_condition: str | None
+    promo: PromoType
 
 
 _LANGUAGE_MAP = {"1": "jp", "2": "en"}
@@ -60,7 +66,8 @@ def extract_collector_number(product_name: str) -> str | None:
 def parse_doc(doc: dict) -> ParsedDoc:
     product_name = doc.get("product_name", "") or ""
     product_name_en = doc.get("product_name_en", "") or ""
-
+    promo = PromoType.none
+    
     # Ignore art cards
     if product_name.find("アート・カード") > 0:
         return None
@@ -72,6 +79,11 @@ def parse_doc(doc: dict) -> ParsedDoc:
     # Promo / prerelease cards still map to their Scryfall variants
     # (e.g. TLA -> PTLA, 226 -> 226p or 226s), so we keep them in the
     # pipeline and let the crawl matcher resolve the correct printing.
+    if product_name.find("■プロモスタンプ付■") > 0:
+        promo = PromoType.promo
+    elif product_name.find("■プレリリース■") > 0:
+        promo = PromoType.prerelease
+
     raw_collector_number = extract_collector_number(product_name) or extract_collector_number(
         product_name_en
     )
@@ -98,6 +110,7 @@ def parse_doc(doc: dict) -> ParsedDoc:
         weekly_sales=int(doc.get("weekly_sales", 0)),
         foil=str(doc.get("foil_flg")) == "1",
         card_condition=doc.get("card_condition"),
+        promo=promo
     )
 
 

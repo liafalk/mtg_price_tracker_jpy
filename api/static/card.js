@@ -6,6 +6,7 @@ const table = document.getElementById('latest-table');
 const tbody = table.querySelector('tbody');
 const chartWrap = document.getElementById('chart-wrap');
 const canvas = document.getElementById('price-chart');
+const priceHistoryHeader = document.getElementById('price-history-header');
 const languageButtons = document.querySelectorAll('.lang-btn');
 const cardHeader = document.getElementById('card-header');
 const errorEl = document.getElementById('error');
@@ -45,6 +46,13 @@ function t(key) {
 function applyUiTranslations() {
   document.getElementById('page-title').textContent = t('pageTitle');
 
+  document.querySelectorAll('[data-i18n-key]').forEach((el) => {
+    const key = el.dataset.i18nKey;
+    if (key && I18N[activeLanguage]?.[key]) {
+      el.textContent = I18N[activeLanguage][key];
+    }
+  });
+
   if (setCodeInput.tagName === 'SELECT') {
     const blankOption = setCodeInput.querySelector('option[value=""]');
     if (blankOption) {
@@ -66,6 +74,7 @@ function applyUiTranslations() {
   tableHeadings[3].textContent = t('tableStock');
   tableHeadings[4].textContent = t('tableWeeklySales');
   tableHeadings[5].textContent = t('tableLastUpdated');
+  priceHistoryHeader.textContent = activeLanguage === 'ja' ? '価格履歴' : 'Price history';
 
   updateDisplayedCardLanguage();
 }

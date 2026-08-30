@@ -24,42 +24,12 @@ from sqlalchemy.orm import Session
 
 from models import Language, Price, Printing, Set
 from scraper.hareruya_client import HareruyaClient, HareruyaFilters
-from scraper.parse import ParsedDoc, parse_docs
+from scraper.parse import ParsedDoc, PromoType, parse_docs
 from scraper.sync_scryfall import _strip_booster_fun_suffix
 
 logger = logging.getLogger(__name__)
 
 _SET_CODE_RE = re.compile(r".*\[(.*)]")
-
-
-def _candidate_set_codes(set_code: str | None) -> list[str]:
-    if not set_code:
-        return []
-
-    normalized = set_code.strip()
-    candidates = [normalized]
-
-    lowered = normalized.lower()
-    if lowered.startswith("p") and len(normalized) > 1:
-        candidates.append(normalized[1:])
-    else:
-        candidates.append(f"p{normalized}")
-
-    return list(dict.fromkeys(candidates))
-
-
-def _candidate_collector_numbers(collector_number: str | None) -> list[str]:
-    if collector_number is None:
-        return []
-
-    normalized = collector_number.strip()
-    candidates = [normalized]
-
-    if re.fullmatch(r"\d+", normalized):
-        candidates.extend([f"{normalized}p", f"{normalized}s"])
-
-    return list(dict.fromkeys(candidates))
-
 
 def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | None:
     """Look up the printing this price observation belongs to.
@@ -83,26 +53,22 @@ def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | 
             logger.warning("Set has no Scryfall set code, skipping...")
             return None
 
-    if doc.collector_number is not None:
-        candidate_collector_numbers = _candidate_collector_numbers(doc.collector_number)
-        for candidate_set_code in _candidate_set_codes(set_code):
-            for candidate_number in candidate_collector_numbers:
-                printing = (
-                    session.query(Printing)
-                    .filter_by(set_code=candidate_set_code, collector_number=candidate_number)
-                    .one_or_none()
-                )
-                if printing is not None:
-                    if candidate_set_code != set_code or candidate_number != doc.collector_number:
-                        logger.info(
-                            "Matched variant printing for set=%s collector=%s via set=%s collector=%s (product=%s)",
-                            set_code,
-                            doc.collector_number,
-                            candidate_set_code,
-                            candidate_number,
-                            doc.hareruya_product_id,
-                        )
-                    return printing
+    if collector_number := doc.collector_number:
+        match doc.promo:
+            case PromoType.promo:
+                set_code = f"p{set_code}"
+                collector_number = f"{collector_number}p"
+            case PromoType.prerelease:
+                set_code = f"p{set_code}"
+                collector_number = f"{collector_number}s"
+
+        printing = (
+            session.query(Printing)
+            .filter_by(set_code=set_code, collector_number=collector_number)
+            .one_or_none()
+        )
+        if printing is not None:
+            return printing
 
         logger.warning(
             "No matching Scryfall printing for set=%s collector_number=%s "
