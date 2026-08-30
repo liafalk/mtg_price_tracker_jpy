@@ -78,6 +78,52 @@ per-card attribute within the base set rather than its own Scryfall
 set, similar to the Booster Fun situation below — worth confirming
 card-by-card rather than assuming a single override code covers it.
 
+A value can also be a list of Scryfall codes, for the rarer case where
+one Hareruya product genuinely spans multiple *distinct* Scryfall sets
+(not variants of one set — that's Booster Fun's job, see below):
+
+```toml
+"MB1+The list" = ["mb1", "plst"]
+```
+
+`MB1+The list` ("Mystery Booster & The List" on Hareruya) is exactly
+this case — Mystery Booster packs also contain The List insert cards,
+so Hareruya sells them as one browsable product, but Scryfall tracks
+`mb1` and `plst` as two unrelated sets. Every code in the list routes
+back to the same local `Set` row when matching prices to printings
+(`sync_printings` → `_build_set_resolver`), while the DB's single
+`scryfall_set_code` column just stores the first one for display.
+
+Two open caveats on this specific set, worth knowing before trusting
+its price data:
+
+- **`The List` is also its own separate Hareruya listing**, queried
+  via `category=248` rather than `cardset=` — a different query
+  pattern this scraper doesn't support at all yet (see below). The
+  override above only covers List cards priced as part of the combined
+  MB1+List product, not the standalone listing.
+- **`The List`'s Scryfall collector numbers are compound** (e.g.
+  `ME4-102`, `TD0-A80`), not plain integers. Whether Hareruya formats
+  these the same way in `product_name` — such that
+  `scraper/parse.py`'s extraction regex (which currently only matches
+  `(\d+)`, pure digits) can pull them out — is unverified. Check crawl
+  logs for unmatched-doc warnings on this set before trusting it.
+
+### `category=` products (not yet supported)
+
+Hareruya has two different query patterns in its own navigation JSON:
+most sets use `cardset=<id>` (what this scraper is built around), but
+promos, Secret Lair drops, Duel Decks, standalone "The List", and a
+long tail of other groupings use `category=<id>` instead — a
+structurally different endpoint. `sync_sets.py` currently only
+extracts `cardset=` nodes from `sideMenuList.json`; `category=`-only
+nodes are silently dropped, and `hareruya_client.py`'s filter builder
+has no way to construct a `category=` request at all. If you need
+pricing for anything that only exists as a `category=` listing, that's
+a real gap, not a config issue — it needs the client and set-sync
+logic extended to handle a second query shape, which hasn't been
+scoped or tested here yet.
+
 ### Scryfall bulk data format
 
 Scryfall changed their bulk-data format in July 2026: files are now
@@ -182,8 +228,12 @@ scraper/
   daily_run.py             # daily entrypoint: retier -> pick sets -> crawl
 config/
   set_code_overrides.toml  # manual Hareruya -> Scryfall set code overrides
+api/
+  main.py                  # FastAPI app: /api/prices lookup + serves the frontend
+  static/
+    index.html             # single-page card lookup UI (table + Chart.js history)
 requirements.txt
-docker-compose.yml         # Postgres + app container (see Setup below)
+docker-compose.yml         # Postgres + app + web containers (see Setup below)
 Dockerfile
 ```
 
@@ -292,14 +342,57 @@ python -m scraper.daily_run
   the release-date tiering alone if you want to refine scheduling
   later.
 
+## Web UI
+
+A minimal card price lookup page: enter a Scryfall set code and
+collector number, get a table of the latest JP/EN, foil/non-foil
+prices and a chart of price history for each.
+
+**Docker Compose** (recommended — starts alongside the DB):
+
+```bash
+docker compose up -d db web
+```
+
+Then open `http://localhost:8000`.
+
+**Locally**, with `DATABASE_URL` pointing at a reachable Postgres:
+
+```bash
+uvicorn api.main:app --reload
+```
+
+It's read-only against the local DB — looking something up never hits
+Hareruya. If a card shows up but every price cell is empty, the crawler
+hasn't run for that set yet (or hasn't run *with foil included* — see
+below).
+
+### Foil prices
+
+The crawler defaults to **non-foil only** to keep request volume down
+(foil roughly doubles the number of listings per set, so roughly
+doubles page/request count for the same `min_interval_seconds`). To
+also crawl foil:
+
+```bash
+# one-off / manual crawl of a single set:
+python -m scraper.crawl 426 --foil
+
+# scheduled daily crawl -- set this wherever daily_run.py runs
+# (e.g. in the cron entry, or docker-compose.yml's `web`/`app` env):
+CRAWL_INCLUDE_FOIL=true python -m scraper.daily_run
+```
+
+Until foil is crawled for a given set, the web UI's foil rows/chart
+lines simply won't appear (not an error) — there's nothing to show
+yet.
+
 ## Not yet built
 
-- **API layer.** A thin FastAPI app serving the local DB (never hits
-  Hareruya on a user request — only the scheduled crawl does).
-- **Foil prices.** The crawler currently defaults to non-foil only
-  (`foil_flg=[0]`) to keep initial scope small; foil is a straightforward
-  second pass once the base pipeline is validated.
-- **Manual set-code overrides.** Sets that don't auto-resolve against
-  Scryfall (Booster Fun variants, retro frames, a handful of older
-  products) currently need their `scryfall_set_code` set by hand;
-  there's no override file/table yet, just direct DB edits.
+- **`category=` products.** Hareruya's promos, Secret Lair drops, Duel
+  Decks, standalone "The List", and a long tail of other groupings use
+  a `category=<id>` query pattern instead of `cardset=<id>` — a
+  different endpoint shape this scraper doesn't support at all yet
+  (`sync_sets.py` silently drops these nodes, `hareruya_client.py` has
+  no way to build a `category=` request). See the "`category=`
+  products" note above.

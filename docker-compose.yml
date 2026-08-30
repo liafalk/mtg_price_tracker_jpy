@@ -46,5 +46,19 @@ services:
     #   docker compose run --rm app python -m scraper.crawl 426
     command: ["sleep", "infinity"]
 
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://jpy_mtg:jpy_mtg@db:5432/jpy_mtg_prices
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
 volumes:
   db_data:
