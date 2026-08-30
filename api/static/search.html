@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search results | JPY MTG Prices</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/i18n.js"></script>
+</head>
+<body>
+  <div class="page-header">
+    <h1 id="page-title">JPY MTG Card Prices</h1>
+
+    <div class="language-toggle" aria-label="Card language selector">
+      <button type="button" class="lang-btn active" data-language="en">English</button>
+      <button type="button" class="lang-btn" data-language="ja">日本語</button>
+    </div>
+  </div>
+
+  <div style="margin-bottom: 1rem;">
+    <a href="/" style="color: #2563eb; text-decoration: none;">← Back to lookup</a>
+  </div>
+
+  <form id="search-form" style="margin-bottom:0.75rem;">
+    <input id="search-term" placeholder="Search card name" autocomplete="off" style="width: 18rem;">
+    <button id="search-btn" type="submit">Search</button>
+  </form>
+
+  <form id="lookup-form">
+    <select id="set-code" required>
+      <option value="">Select set code</option>
+    </select>
+    <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
+    <button id="submit-btn" type="submit">Look up</button>
+  </form>
+
+  <div id="error"></div>
+
+  <div id="search-results-page">
+    <h2 id="search-results-title">Search results</h2>
+    <table id="search-results-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Thumbnail</th>
+          <th>Set</th>
+          <th>Number</th>
+          <th>Rarity</th>
+          <th>Price (EN)</th>
+          <th>Price (JP)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script src="/static/search.js"></script>
+</body>
+</html>

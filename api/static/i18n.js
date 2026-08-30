@@ -4,7 +4,6 @@ window.I18N = {
     setCodePlaceholder: 'Set code (e.g. hob)',
     collectorNumberPlaceholder: 'Collector number (e.g. 119)',
     submit: 'Look up',
-    hint: 'Set code is Scryfall\'s (e.g. "hob", "eld") -- not Hareruya\'s internal numeric cardset id.',
     tableLanguage: 'Language',
     tableFoil: 'Foil',
     tablePrice: 'Price (¥)',
@@ -16,13 +15,18 @@ window.I18N = {
     yes: 'Yes',
     no: 'No',
     unknownName: '(name unknown)',
+    rarity: {
+        common: 'Common',
+        uncommon: 'Uncommon',
+        rare: 'Rare',
+        mythic: 'Mythic Rare'
+    }
   },
   ja: {
     pageTitle: 'JPY MTG カード価格',
     setCodePlaceholder: 'セットコード（例: hob）',
     collectorNumberPlaceholder: '収集番号（例: 119）',
     submit: '検索',
-    hint: 'セットコードは Scryfall のものです（例: "hob", "eld"）-- Hareruya 内部の数値 cardset id ではありません。',
     tableLanguage: '言語',
     tableFoil: 'Foil',
     tablePrice: '価格 (¥)',
@@ -34,5 +38,11 @@ window.I18N = {
     yes: 'あり',
     no: 'なし',
     unknownName: '（名前不明）',
+    rarity: {
+        common: 'コモン',
+        uncommon: 'アンコモン',
+        rare: 'レア',
+        mythic: '神話レア'
+    }
   }
 };

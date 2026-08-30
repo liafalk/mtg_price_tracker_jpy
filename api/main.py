@@ -36,19 +36,19 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "home.html")
 
 
 @app.get("/search")
 @app.get("/search/")
 def search_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "search.html")
 
 
 @app.get("/card/{set_code}/{collector_number}")
 @app.get("/card/{set_code}/{collector_number}/")
 def card_resource() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "card.html")
 
 
 def _find_printing(session: Session, set_code: str, collector_number: str) -> Printing:
