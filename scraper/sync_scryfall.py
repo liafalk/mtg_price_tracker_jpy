@@ -22,7 +22,7 @@ shifts again -- see its docstring.
 Manual set-code overrides (for sets that don't auto-resolve) live in
 config/set_code_overrides.toml -- see load_set_code_overrides below.
 
-Run this after sync_sets.py (it needs `sets.scryfall_set_code` filled
+Run this after sync_sets.py (it needs `sets.set_code` filled
 in to know which Scryfall rows belong to which Hareruya set), and
 re-run it whenever new sets are added -- otherwise there's nothing for
 the price crawler to attach prices to.
@@ -33,12 +33,13 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from models import Printing, Set
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 BULK_DATA_INDEX_URL = "https://api.scryfall.com/bulk-data"
 BULK_DATA_TYPE = "default_cards"
 SETS_URL = "https://api.scryfall.com/sets"
+MAINFEST_URL = "https://api.scryfall.com/cards/manifest"
 
 DEFAULT_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "config" / "set_code_overrides.toml"
 
@@ -56,6 +58,24 @@ REQUEST_HEADERS = {
     "User-Agent": "jpy-mtg-price-tracker/0.1 (personal project)",
     "Accept": "application/json",
 }
+
+async def update_japanese_titles(session: Session):
+    query: httpx.QueryParams = {"lang": "jp", "page": 0}
+    while True:
+        async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
+            resp = await client.get(MAINFEST_URL, params=query, headers=REQUEST_HEADERS)
+        resp.raise_for_status()
+        resp_json = resp.json()
+        for entry in resp_json["data"]:
+            session.execute(
+                update(Printing)
+                .where(Printing.scryfall_id == entry["id"])
+                .values(name_jp=entry["name"]))
+        if not resp_json["has_more"]:
+            session.commit()
+            break
+
+        query["page"] += 1
 
 
 async def _get_bulk_data_download_uri(client: httpx.AsyncClient) -> str:
@@ -100,7 +120,7 @@ async def _fetch_all_scryfall_set_codes(client: httpx.AsyncClient) -> set[str]:
     return {entry["code"] for entry in resp.json()["data"]}
 
 
-def load_set_code_overrides(path: Path | None = None) -> dict[str, str]:
+def load_set_code_overrides(path: Path | None = None) -> dict[int, str]:
     """Loads manual hareruya_product_code -> scryfall_set_code overrides
     from a TOML config file (default: config/set_code_overrides.toml).
 
@@ -119,7 +139,7 @@ def load_set_code_overrides(path: Path | None = None) -> dict[str, str]:
     for key, value in data.items():
         if not isinstance(value, str):
             raise ValueError(
-                f"{path}: value for {key!r} must be a string, "
+                f"{path}: value for {key!r} must be a str, "
                 f"got {type(value).__name__}: {value!r}"
             )
         if not value:
@@ -127,13 +147,13 @@ def load_set_code_overrides(path: Path | None = None) -> dict[str, str]:
             # empty strings as placeholders -- skip rather than apply.
             continue
 
-    return {k: v for k, v in data.items() if v}
+    return {int(k): v for k, v in data.items() if v}
 
 
 async def resolve_scryfall_set_codes(
     session: Session, overrides_path: Path | None = None
 ) -> None:
-    """Fill in `sets.scryfall_set_code` for every Set.
+    """Fill in `sets.set_code` for every Set.
 
     Resolution order:
       1. Manual override from config/set_code_overrides.toml, if the
@@ -159,6 +179,8 @@ async def resolve_scryfall_set_codes(
     """
     overrides = load_set_code_overrides(overrides_path)
 
+    logger.info("Loaded %d manual overrides", len(overrides))
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         valid_codes = await _fetch_all_scryfall_set_codes(client)
 
@@ -167,10 +189,7 @@ async def resolve_scryfall_set_codes(
     overridden = 0
 
     for set_row in session.execute(select(Set)).scalars().all():
-        if not set_row.hareruya_product_code:
-            continue
-
-        override = overrides.get(set_row.hareruya_product_code)
+        override = overrides.get(set_row.hareruya_cardset_id)
         if override:
             if override not in valid_codes:
                 logger.warning(
@@ -178,20 +197,22 @@ async def resolve_scryfall_set_codes(
                     "-- applying it anyway, but double-check it",
                     set_row.hareruya_product_code, override,
                 )
-            set_row.scryfall_set_code = override
+            set_row.set_code = override
             overridden += 1
             continue
 
-        if set_row.scryfall_set_code:
+        if set_row.set_code:
             continue  # already resolved (automatically) in a previous run
 
-        base_code = _strip_booster_fun_suffix(set_row.hareruya_product_code)
-        candidate = base_code.lower()
-        if candidate in valid_codes:
-            set_row.scryfall_set_code = candidate
-            resolved += 1
-        else:
-            unresolved.append(set_row)
+        if set_row.hareruya_product_code is not None:
+            base_code = _strip_booster_fun_suffix(set_row.hareruya_product_code)
+            candidate = base_code.lower()
+            if candidate in valid_codes:
+                set_row.set_code = candidate
+                resolved += 1
+                continue
+
+        unresolved.append(set_row)
 
     session.commit()
     logger.info(
@@ -205,7 +226,7 @@ async def resolve_scryfall_set_codes(
             "them to %s: %s",
             len(unresolved),
             used_path,
-            ", ".join(s.hareruya_product_code or "?" for s in unresolved[:20]),
+            ", ".join(str(s.hareruya_cardset_id) for s in unresolved),
         )
 
 
@@ -268,8 +289,6 @@ def _relevant_rows(cards: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
     attaching are for JP-market listings.
     """
     for card in cards:
-        if card.get("lang") != "en":
-            continue
         if card.get("digital"):
             continue
         if not card.get("collector_number"):
@@ -299,31 +318,14 @@ def _build_set_resolver(
     booster_fun_by_code: dict[str, Set] = {}
 
     for set_row in session.execute(select(Set)).scalars().all():
-        if not set_row.scryfall_set_code:
+        if not set_row.set_code:
             continue
         if _is_booster_fun_set(set_row):
-            booster_fun_by_code[set_row.scryfall_set_code] = set_row
+            booster_fun_by_code[set_row.set_code] = set_row
         else:
-            primary_by_code[set_row.scryfall_set_code] = set_row
+            primary_by_code[set_row.set_code] = set_row
 
     return primary_by_code, booster_fun_by_code
-
-
-def _resolve_local_set(
-    card: dict[str, Any],
-    primary_by_code: dict[str, Set],
-    booster_fun_by_code: dict[str, Set],
-) -> Set | None:
-    set_code = card["set"]
-
-    if _card_is_booster_fun(card):
-        # Prefer the dedicated Booster Fun product if we track it
-        # separately; fall back to the primary set if we don't (better
-        # to have the price land somewhere sensible than drop it).
-        return booster_fun_by_code.get(set_code) or primary_by_code.get(set_code)
-
-    return primary_by_code.get(set_code)
-
 
 def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
     primary_by_code, booster_fun_by_code = _build_set_resolver(session)
@@ -335,13 +337,12 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
         )
 
     existing = {
-        (p.set_id, p.collector_number): p
+        (p.set_code, p.collector_number): p
         for p in session.execute(select(Printing)).scalars().all()
     }
 
     created = 0
     updated = 0
-    unmatched_sets: set[str] = set()
 
     for card in _relevant_rows(cards):
         key = (card["set"], card["collector_number"])
@@ -349,7 +350,7 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
 
         if printing is None:
             printing = Printing(
-                set=card["set"],
+                set_code=card["set"],
                 collector_number=card["collector_number"],
                 name_en=card.get("name"),
                 rarity=card.get("rarity"),
@@ -366,19 +367,13 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
 
     session.commit()
     logger.info("Printings: %d created, %d updated", created, updated)
-    if unmatched_sets:
-        logger.info(
-            "%d Scryfall set codes had no matching Hareruya set (expected -- "
-            "most sets aren't sold there, e.g. promos/online-only): %s",
-            len(unmatched_sets),
-            ", ".join(sorted(unmatched_sets)[:20]) + ("..." if len(unmatched_sets) > 20 else ""),
-        )
 
 
 async def run(session: Session) -> None:
     await resolve_scryfall_set_codes(session)
     cards = await fetch_default_cards()
     sync_printings(session, cards)
+    #await update_japanese_titles(session)
 
 
 if __name__ == "__main__":
@@ -387,6 +382,11 @@ if __name__ == "__main__":
     from db import SessionLocal
 
     logging.basicConfig(level=logging.INFO)
-
+        
     with SessionLocal() as session:
-        asyncio.run(run(session))
+        if len(sys.argv) > 0 and isinstance(sys.argv[1], str):
+            match sys.argv[1]:
+                case "sets":
+                    asyncio.run(resolve_scryfall_set_codes(session))
+        else:
+            asyncio.run(run(session))

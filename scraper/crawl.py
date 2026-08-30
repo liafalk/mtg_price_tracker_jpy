@@ -14,6 +14,7 @@ into a worker for the scheduled version.
 
 from __future__ import annotations
 
+import re
 import asyncio
 import datetime as dt
 import logging
@@ -23,9 +24,11 @@ from sqlalchemy.orm import Session
 from models import Language, Price, Printing, Set
 from scraper.hareruya_client import HareruyaClient, HareruyaFilters
 from scraper.parse import ParsedDoc, parse_docs
+from scraper.sync_scryfall import _strip_booster_fun_suffix
 
 logger = logging.getLogger(__name__)
 
+_SET_CODE_RE = re.compile(r".*\[(.*)]")
 
 def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | None:
     """Look up the printing this price observation belongs to.
@@ -45,9 +48,20 @@ def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | 
         )
         return None
 
+    set_code = set_row.set_code
+
+    if set_row.set_code is None:
+        match = _SET_CODE_RE.match(doc.product_name)
+        if match:
+            set_code = _strip_booster_fun_suffix(match.group(1))
+            logger.warning("Set has no Scryfall set code, parsed from card title as %s", set_code)
+        else:
+            logger.warning("Set has no Scryfall set code, skipping...")
+            return None
+
     printing = (
         session.query(Printing)
-        .filter_by(set_id=set_row.id, collector_number=doc.collector_number)
+        .filter_by(set_code=set_code, collector_number=doc.collector_number)
         .one_or_none()
     )
     if printing is None:
@@ -55,7 +69,7 @@ def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | 
             "No matching Scryfall printing for set=%s collector_number=%s "
             "(product=%s) -- run sync_scryfall first, or this is a genuine "
             "mismatch worth checking by hand",
-            set_row.hareruya_product_code, doc.collector_number, doc.hareruya_product_id,
+            set_code, doc.collector_number, doc.hareruya_product_id,
         )
     return printing
 
@@ -79,7 +93,7 @@ async def crawl_set(
     docs = await client.fetch_all_pages(filters)
     parsed = parse_docs(docs)
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     written = 0
 
     unmatched = 0
@@ -109,7 +123,7 @@ async def crawl_set(
 
     logger.info(
         "Crawled set %s (%s): got %d rows, %d price rows written, %d docs unmatched",
-        set_row.hareruya_product_code, set_row.hareruya_cardset_id, len(parsed), written, unmatched,
+        set_row.name_jp, set_row.hareruya_cardset_id, len(parsed), written, unmatched,
     )
     if unmatched and written == 0:
         logger.warning(
@@ -123,7 +137,7 @@ async def crawl_sets(
     session: Session,
     sets: list[Set],
     *,
-    min_interval_seconds: float = 4.0,
+    min_interval_seconds: float = 3.0,
 ) -> None:
     """Crawl multiple sets sequentially through a single rate-limited client.
 
@@ -147,8 +161,15 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    set_code = str(sys.argv[1]) if len(sys.argv) > 1 else "hob"  # HOB by default
+    if len(sys.argv) < 1 or not isinstance(sys.argv[1], str):
+        print("provide a set code or cardset id")
+        exit(1)
+
+    param = str(sys.argv[1])
 
     with SessionLocal() as session:
-        set_row = session.query(Set).filter_by(scryfall_set_code=set_code).all()
+        if not param.isdigit():
+            set_row = session.query(Set).filter_by(set_code=param).all()
+        else:
+            set_row = session.query(Set).filter_by(hareruya_cardset_id=int(param)).all()
         asyncio.run(crawl_sets(session, set_row))

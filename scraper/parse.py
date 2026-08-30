@@ -35,8 +35,8 @@ def normalize_collector_number(collector_number: str) -> str:
 class ParsedDoc:
     hareruya_product_id: int
     collector_number: str | None
-    name_en: str | None
-    name_jp: str | None
+    card_name: str
+    product_name: str
     language: str  # "jp" or "en" -- Hareruya's language field is "1"/"2"
     price_yen: int
     stock: int
@@ -64,7 +64,15 @@ def parse_doc(doc: dict) -> ParsedDoc:
     # Ignore tokens
     if product_name.find("トークン") > 0:
         return None
-        
+
+    # Ignore promo stamps
+    if product_name.find("プロモ") > 0:
+        return None
+
+    # Ignore prerelease stamp
+    if product_name.find("■プレリリース■") > 0:
+        return None
+
     raw_collector_number = extract_collector_number(product_name) or extract_collector_number(
         product_name_en
     )
@@ -75,9 +83,8 @@ def parse_doc(doc: dict) -> ParsedDoc:
     return ParsedDoc(
         hareruya_product_id=int(doc["product"]),
         collector_number=normalize_collector_number(raw_collector_number),
-        name_en=doc.get("card_name"),
-        name_jp=None,  # card_name in the sample data is already English;
-        # the JP name would need to be pulled from product_name if needed.
+        card_name=doc.get("card_name"),
+        product_name=product_name,
         language=_LANGUAGE_MAP.get(str(doc.get("language")), "en"),
         price_yen=int(doc.get("price", 0)),
         stock=int(doc.get("stock", 0)),

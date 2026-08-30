@@ -50,19 +50,18 @@ class Set(Base):
     # Hareruya identifiers
     hareruya_cardset_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
     hareruya_product_code: Mapped[str | None] = mapped_column(String(32), index=True)
+    
     name_jp: Mapped[str] = mapped_column(String(256))
 
     # Scryfall join key -- usually hareruya_product_code.lower(), but not
     # guaranteed (see sync_scryfall.py), so store it explicitly once resolved.
-    scryfall_set_code: Mapped[str | None] = mapped_column(String(16), index=True)
+    set_code: Mapped[str | None] = mapped_column(String(16), index=True)
 
     release_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     tier: Mapped[Tier] = mapped_column(Enum(Tier), default=Tier.cold, index=True)
 
     # bookkeeping
     last_crawled_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
-
-    printings: Mapped[list["Printing"]] = relationship(back_populates="set")
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Set {self.hareruya_product_code} ({self.hareruya_cardset_id})>"
@@ -73,11 +72,11 @@ class Printing(Base):
 
     __tablename__ = "printings"
     __table_args__ = (
-        UniqueConstraint("set_id", "collector_number", name="uq_set_collector_number"),
+        UniqueConstraint("set_code", "collector_number", name="uq_set_collector_number"),
     )
 
-    set: Mapped[int] = mapped_column(Integer, primary_key=True)
-    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id"), index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    set_code: Mapped[str] = mapped_column(String(32), index=True)
 
     collector_number: Mapped[str] = mapped_column(String(16), index=True)
     name_en: Mapped[str | None] = mapped_column(String(256))
@@ -88,7 +87,6 @@ class Printing(Base):
     # the Price row (it differs per language), not here.
     scryfall_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
 
-    set: Mapped["Set"] = relationship(back_populates="printings")
     prices: Mapped[list["Price"]] = relationship(back_populates="printing")
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -123,7 +121,7 @@ class Price(Base):
     card_condition: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     fetched_at: Mapped[dt.datetime] = mapped_column(
-        DateTime, default=dt.datetime.utcnow, index=True
+        DateTime, default=lambda: dt.datetime.now(dt.timezone.utc), index=True
     )
 
     printing: Mapped["Printing"] = relationship(back_populates="prices")

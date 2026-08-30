@@ -23,30 +23,84 @@
 # logged loudly).
 
 # --- Verified ---
-"10ED" = "10e"    # Tenth Edition
-"CE"   = "ced"    # Collector's Edition
-"IE"   = "cei"    # International Edition
-"PO2"  = "p02"    # Portal Second Age
-# --- Still need lookup (uncomment and fill in once verified) ---
-# "CHRBB"         = ""   # Chronicles, black border
-# "4EDBB"         = ""   # Fourth Edition, black border
-# "A4ED"          = ""   # Alternate/foreign Fourth Edition
-# "3EDBB"         = ""   # Revised (Third Edition), black border --
-#                         # possibly not a separate Scryfall set at all;
-#                         # border color may be a per-card attribute
-#                         # rather than its own set, similar to the
-#                         # Booster Fun situation (see README). Worth
-#                         # checking card-by-card before assuming a
-#                         # single override code covers it.
-# "CMA17"         = ""   # Commander Anthology 2018 (naming mismatch)
-# "PT1996"        = ""   # Pro Tour New York 1996 decks
-# "Summer"        = ""   # Summer Magic
-# "MB1+The list"  = ""   # Mystery Booster + The List combined listing --
-#                         # may not map to a single Scryfall set at all,
-#                         # since "The List" spans many sets by design
-# "MB1"           = ""   # Mystery Booster
-# "CSPBuild"      = ""   # Coldsnap theme decks
-# "SLDD"          = ""   # Secret Lair Commander Deck products
-# "MH1-RT"        = ""   # Modern Horizons 1, retro frame -- same
-#                         # possible attribute-vs-set caveat as 3EDBB
-# "BRO-Retro"     = ""   # The Brothers' War, retro frame -- ditto
+67 = "10e"    # Tenth Edition
+217   = "ced"    # Collector's Edition
+216   = "cei"    # International Edition
+23  = "p02"    # Portal Second Age
+202 = "4bb" # 4ED black border
+268 = "h1r" # mh1 retro border
+214 = "bchr" # chronicles black border
+360 = "ps11" #Salvat 2011
+357 = "psal" # Salvat 2005
+234 = "fbb" # Revised black border
+406 = "mar"
+421 = "soa"
+422 = "soa"
+417 = "tmt"
+348 = "spg" # Special Guest
+403 = ""
+398 = "fca" # マジック：ザ・ギャザリング——FINAL FANTASY・継承史
+413 = "" # マジック：ザ・ギャザリング——FINAL FANTASY シーン・ボックス/チョコボ・バンドル
+365 = "big" # Big Score
+366 = "otp" # Thunder Junction Breaking News
+349 = "rex" # Jurassic World
+312 = "brr" # BRO Retro
+313 = ""
+260 = "sta"
+261 = "sta"
+246 = "zne"
+185 = ""
+160 = ""
+148 = "exp"
+372 = ""
+258 = "tsr" #time spiral bonus
+125 = ""
+64 = "tsb"
+384 = ""
+210 = ""
+206 = ""
+205 = ""
+189 = ""
+176 = "e02"
+137 = ""
+88 = ""
+43 = ""
+37 = ""
+35 = ""
+33 = ""
+230 = ""
+231 = ""
+309 = ""
+197 = ""
+198 = ""
+199 = ""
+200 = ""
+201 = ""
+186 = ""
+191 = ""
+192 = ""
+193 = ""
+194 = ""
+291 = ""
+290 = ""
+289 = ""
+288 = ""
+287 = ""
+286 = ""
+285 = ""
+284 = ""
+162 = ""
+107 = ""
+81 = ""
+245 = ""
+244 = ""
+170 = ""
+89 = ""
+379 = ""
+322 = ""
+215 = ""
+196 = ""
+241 = ""
+393 = "sld"
+169 = "cma" #commander anthology
+276 = "sum" #summer magic
