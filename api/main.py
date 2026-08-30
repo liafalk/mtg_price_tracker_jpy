@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from db import SessionLocal
@@ -39,29 +39,28 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
-def _find_printings(session: Session, set_code: str, collector_number: str) -> list[Printing]:
-    """Looks up every local Printing matching (Scryfall set code,
-    collector number).
+@app.get("/search")
+@app.get("/search/")
+def search_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
-    Returns a list rather than a single row because scryfall_set_code
-    isn't guaranteed unique across local `Set` rows -- Booster Fun
-    variants share their base set's code (see sync_scryfall.py), and a
-    multi-set override could too in principle. In practice a given
-    collector number should only exist under one of them, but we don't
-    assume that; we search across all matches and let whichever one
-    actually has the number win.
-    """
+
+@app.get("/card/{set_code}/{collector_number}")
+@app.get("/card/{set_code}/{collector_number}/")
+def card_resource() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+def _find_printing(session: Session, set_code: str, collector_number: str) -> Printing:
     set_code = set_code.strip().lower()
     collector_number = normalize_collector_number(collector_number.strip())
 
-    return list(
-        session.execute(
+    return session.execute(
             select(Printing).where(
                 Printing.set_code == (set_code),
                 Printing.collector_number == collector_number,
             )
-        ).scalars().all()
-    )
+        ).scalars().first()
 
 
 def _bucket_key(price: Price) -> str:
@@ -71,14 +70,67 @@ def _bucket_key(price: Price) -> str:
     return f"{lang}_{'foil' if price.foil else 'nonfoil'}"
 
 
+@app.get("/api/search")
+def search_cards(query: str = Query(..., alias="q")) -> dict[str, Any]:
+    term = query.strip()
+    if not term:
+        return {"results": []}
+
+    pattern = f"%{term.lower()}%"
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(Printing)
+            .where(
+                or_(
+                    func.lower(Printing.name_en).like(pattern),
+                    func.lower(Printing.name_jp).like(pattern),
+                )
+            )
+            .order_by(Printing.name_en.asc(), Printing.name_jp.asc())
+            .limit(200)
+        ).scalars().all()
+
+        if not rows:
+            return {"results": []}
+
+        latest_prices = {}
+        all_prices = session.execute(
+            select(Price)
+            .where(Price.printing_id.in_([row.id for row in rows]))
+            .order_by(Price.printing_id.asc(), Price.fetched_at.desc())
+        ).scalars().all()
+        for price in all_prices:
+            bucket = _bucket_key(price)
+            latest_prices.setdefault(price.printing_id, {})
+            latest_prices[price.printing_id].setdefault(bucket, price.price_yen)
+
+        results = [
+            {
+                "id": row.id,
+                "set_code": row.set_code,
+                "collector_number": row.collector_number,
+                "name_en": row.name_en,
+                "name_jp": row.name_jp,
+                "rarity": row.rarity,
+                "thumb": row.img_thumb_uri or row.img_thumb_uri_jp,
+                "thumb_jp": row.img_thumb_uri_jp,
+                "recent_prices": latest_prices.get(row.id, {}),
+                "detail_url": f"/card/{row.set_code}/{row.collector_number}",
+            }
+            for row in rows
+        ]
+
+    return {"results": results}
+
+
 @app.get("/api/prices")
 def get_prices(
     set_code: str = Query(..., alias="set", description="Scryfall set code, e.g. 'hob'"),
     collector_number: str = Query(..., alias="number", description="Collector number, e.g. '119'"),
 ) -> dict[str, Any]:
     with SessionLocal() as session:
-        printings = _find_printings(session, set_code, collector_number)
-        if not printings:
+        printing = _find_printing(session, set_code, collector_number)
+        if not printing:
             raise HTTPException(
                 status_code=404,
                 detail=(
@@ -88,18 +140,13 @@ def get_prices(
                 ),
             )
 
-        printing_ids = [p.id for p in printings]
         all_prices = list(
             session.execute(
                 select(Price)
-                .where(Price.printing_id.in_(printing_ids))
+                .where(Price.printing_id == printing.id)
                 .order_by(Price.fetched_at.asc())
             ).scalars().all()
         )
-
-        card_name = next((p.name_en for p in printings if p.name_en), None)
-        rarity = next((p.rarity for p in printings if p.rarity), None)
-        scryfall_id = next((p.scryfall_id for p in printings if p.scryfall_id), None)
 
         history: dict[str, list[dict[str, Any]]] = {}
         latest_by_bucket: dict[str, Price] = {}
@@ -128,15 +175,19 @@ def get_prices(
 
         return {
             "card": {
-                "name": card_name,
+                "name_en": printing.name_en,
+                "name_jp": printing.name_jp,
                 "set_code": set_code.strip().lower(),
                 "collector_number": normalize_collector_number(collector_number.strip()),
-                "rarity": rarity,
-                # Scryfall's own image-redirect endpoint; the frontend
-                # builds the actual <img> URL from this rather than us
-                # storing/serving image URLs ourselves -- one less thing
-                # to keep in sync as Scryfall's CDN paths change.
-                "scryfall_id": scryfall_id,
+                "rarity": printing.rarity,
+                "scryfall_id": printing.scryfall_id,
+                "scryfall_id_jp": printing.scryfall_id_jp,
+                "img":{
+                    "grid": printing.img_grid_uri,
+                    "thumb": printing.img_thumb_uri,
+                    "grid_jp": printing.img_grid_uri_jp,
+                    "thumb_jp": printing.img_thumb_uri_jp,
+                }
             },
             "latest": latest,
             "history": history,

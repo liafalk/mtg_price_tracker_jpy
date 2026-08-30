@@ -30,28 +30,34 @@ the price crawler to attach prices to.
 
 from __future__ import annotations
 
+import argparse
+from enum import StrEnum
 import gzip
 import json
 import logging
-import sys
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
+from tqdm import tqdm
 
 from models import Printing, Set
 
 logger = logging.getLogger(__name__)
 
 BULK_DATA_INDEX_URL = "https://api.scryfall.com/bulk-data"
-BULK_DATA_TYPE = "default_cards"
 SETS_URL = "https://api.scryfall.com/sets"
 MAINFEST_URL = "https://api.scryfall.com/cards/manifest"
 
 DEFAULT_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "config" / "set_code_overrides.toml"
+
+class BulkDataType(StrEnum):
+    DEFAULT = "default_cards"
+    ALL = "all_cards"
 
 # Be a good citizen: Scryfall explicitly asks for this in their API docs.
 REQUEST_HEADERS = {
@@ -59,31 +65,12 @@ REQUEST_HEADERS = {
     "Accept": "application/json",
 }
 
-async def update_japanese_titles(session: Session):
-    query: httpx.QueryParams = {"lang": "jp", "page": 0}
-    while True:
-        async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
-            resp = await client.get(MAINFEST_URL, params=query, headers=REQUEST_HEADERS)
-        resp.raise_for_status()
-        resp_json = resp.json()
-        for entry in resp_json["data"]:
-            session.execute(
-                update(Printing)
-                .where(Printing.scryfall_id == entry["id"])
-                .values(name_jp=entry["name"]))
-        if not resp_json["has_more"]:
-            session.commit()
-            break
-
-        query["page"] += 1
-
-
-async def _get_bulk_data_download_uri(client: httpx.AsyncClient) -> str:
+async def _get_bulk_data_download_uri(client: httpx.AsyncClient, type: BulkDataType) -> str:
     resp = await client.get(BULK_DATA_INDEX_URL, headers=REQUEST_HEADERS)
     resp.raise_for_status()
-    entries = resp.json()["data"]
+    entries: list[dict[str, any]] = resp.json()["data"]
     for entry in entries:
-        if entry["type"] == BULK_DATA_TYPE:
+        if entry["type"] == type:
             # jsonl_download_uri is current as of the July 2026 format
             # change; download_uri is the retired pre-change field, kept
             # here only as a fallback in case a cached/older index is
@@ -91,11 +78,11 @@ async def _get_bulk_data_download_uri(client: httpx.AsyncClient) -> str:
             uri = entry.get("jsonl_download_uri") or entry.get("download_uri")
             if not uri:
                 raise ValueError(
-                    f"bulk-data entry for {BULK_DATA_TYPE!r} has neither "
+                    f"bulk-data entry for {type!r} has neither "
                     f"jsonl_download_uri nor download_uri: {entry!r}"
                 )
             return uri
-    raise ValueError(f"No bulk-data entry of type {BULK_DATA_TYPE!r} found")
+    raise ValueError(f"No bulk-data entry of type {type!r} found")
 
 
 _BOOSTER_FUN_SUFFIX = "-BF"
@@ -231,27 +218,16 @@ async def resolve_scryfall_set_codes(
 
 
 def _parse_bulk_body(raw: bytes) -> list[dict[str, Any]]:
-    """Parses a Scryfall bulk-data response body, tolerating either of
-    the shapes Scryfall has served over time:
+    """Parses a bulk-data payload into a temporary JSONL cache.
 
-      - gzip-compressed JSONL (current, as of the July 2026 format
-        change): one JSON object per line, body is raw gzip bytes.
-      - plain JSONL: same, but not gzip-compressed (e.g. if the HTTP
-        client already transparently decoded a Content-Encoding: gzip
-        header, which is a different thing from the file itself being
-        a .jsonl.gz archive).
-      - a single top-level JSON array (the pre-change format): kept as
-        a fallback so this doesn't break if an older/cached endpoint
-        is ever hit.
-
-    We detect which shape we got rather than assuming, since trusting
-    a hardcoded format is exactly what broke on the last format change.
+    We intentionally keep this helper for compatibility with older call
+    sites and tests, but the hot path in the application now writes the
+    large payload to disk instead of keeping the full decoded list in
+    memory.
     """
     try:
         text = gzip.decompress(raw).decode("utf-8")
     except OSError:
-        # Not gzip-compressed -- either already decoded for us, or was
-        # never gzipped in the first place.
         text = raw.decode("utf-8")
 
     stripped = text.lstrip()
@@ -261,23 +237,131 @@ def _parse_bulk_body(raw: bytes) -> list[dict[str, Any]]:
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
-async def fetch_default_cards() -> list[dict[str, Any]]:
-    """Downloads and parses the full default_cards bulk file.
+def _write_bulk_data_to_temp_file(raw: bytes, temp_path: Path) -> int:
+    """Write large bulk-data payload to a temp JSONL file and return row count."""
+    try:
+        text = gzip.decompress(raw).decode("utf-8")
+    except OSError:
+        text = raw.decode("utf-8")
 
-    This is a large file (several hundred MB as of writing). Fine for a
-    periodic batch job; don't call this per-request. If memory becomes
-    an issue, switch to a streaming parser -- the logic below doesn't
-    care how the dicts arrive, only that it gets an iterable of card
-    objects.
+    count = 0
+    with temp_path.open("w", encoding="utf-8") as handle:
+        stripped = text.lstrip()
+        if stripped.startswith("["):
+            rows = json.loads(text)
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":")))
+                handle.write("\n")
+                count += 1
+            return count
+
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            handle.write(line)
+            handle.write("\n")
+            count += 1
+
+    return count
+
+
+def _write_bulk_data_from_path(raw_path: Path, temp_path: Path) -> int:
+    """Convert a downloaded bulk payload on disk to a JSONL temp file."""
+    with raw_path.open("rb") as source_file:
+        first_chunk = source_file.read(2)
+        source_file.seek(0)
+
+        if first_chunk == b"\x1f\x8b":
+            with gzip.open(raw_path, "rb") as source:
+                text = source.read().decode("utf-8")
+        else:
+            text = source_file.read().decode("utf-8")
+
+    count = 0
+    with temp_path.open("w", encoding="utf-8") as handle:
+        stripped = text.lstrip()
+        if stripped.startswith("["):
+            rows = json.loads(text)
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":")))
+                handle.write("\n")
+                count += 1
+            return count
+
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            handle.write(line)
+            handle.write("\n")
+            count += 1
+
+    return count
+
+
+def _iter_cards_from_path(path: Path) -> Iterator[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            yield json.loads(line)
+
+
+def _iter_relevant_cards(cards: Path | list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    if isinstance(cards, Path):
+        iterable = _iter_cards_from_path(cards)
+    else:
+        iterable = cards
+
+    for card in iterable:
+        if card.get("digital"):
+            continue
+        if not card.get("collector_number"):
+            continue
+        yield card
+
+
+async def fetch_default_cards(type: BulkDataType) -> Path:
+    """Downloads the bulk file and spools it to a temporary JSONL cache.
+
+    The full Scryfall export is large enough to blow up memory if you keep
+    it as a Python list. Returning a path lets the caller stream rows one
+    by one while still preserving the same logical data flow.
     """
     async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
-        download_uri = await _get_bulk_data_download_uri(client)
-        logger.info("Downloading Scryfall bulk data from %s", download_uri)
-        resp = await client.get(download_uri, headers=REQUEST_HEADERS)
-        resp.raise_for_status()
-        cards = _parse_bulk_body(resp.content)
-        logger.info("Parsed %d cards from bulk data", len(cards))
-        return cards
+        download_uri = await _get_bulk_data_download_uri(client, type)
+        logger.info("Downloading Scryfall default bulk data from %s", download_uri)
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            delete=False,
+            suffix=".bin",
+            prefix=f"{type.value}_",
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        async with client.stream("GET", download_uri, headers=REQUEST_HEADERS) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("Content-Length") or 0)
+            with temp_path.open("wb") as handle:
+                with tqdm(
+                    total=total,
+                    unit="B",
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    desc=f"download {type.value}",
+                    leave=True,
+                ) as progress:
+                    async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
+                        if not chunk:
+                            continue
+                        handle.write(chunk)
+                        progress.update(len(chunk))
+
+        jsonl_path = temp_path.with_suffix(".jsonl")
+        row_count = _write_bulk_data_from_path(temp_path, jsonl_path)
+        logger.info("Wrote %d cards to temporary bulk cache %s", row_count, jsonl_path)
+        temp_path.unlink(missing_ok=True)
+        return jsonl_path
 
 
 def _relevant_rows(cards: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -294,15 +378,6 @@ def _relevant_rows(cards: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         if not card.get("collector_number"):
             continue
         yield card
-
-
-def _card_is_booster_fun(card: dict[str, Any]) -> bool:
-    """Mirrors Scryfall's own `is:boosterfun` search filter: true for
-    showcase/extended-art/borderless alternate treatments sold
-    specifically as Collector Booster chase versions of a card that
-    also has a normal-frame printing in the same set."""
-    return "boosterfun" in (card.get("promo_types") or [])
-
 
 def _build_set_resolver(
     session: Session,
@@ -327,7 +402,7 @@ def _build_set_resolver(
 
     return primary_by_code, booster_fun_by_code
 
-def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
+def sync_printings(session: Session, cards: Path | list[dict[str, Any]]) -> None:
     primary_by_code, booster_fun_by_code = _build_set_resolver(session)
 
     if not primary_by_code and not booster_fun_by_code:
@@ -341,10 +416,12 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
         for p in session.execute(select(Printing)).scalars().all()
     }
 
+    total = sum(1 for _ in _iter_relevant_cards(cards)) if isinstance(cards, Path) else len(cards)
     created = 0
     updated = 0
 
-    for card in _relevant_rows(cards):
+    iterable = _iter_relevant_cards(cards)
+    for card in tqdm(iterable, total=total, desc="sync_printings"):
         key = (card["set"], card["collector_number"])
         printing = existing.get(key)
 
@@ -352,10 +429,14 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
             printing = Printing(
                 set_code=card["set"],
                 collector_number=card["collector_number"],
-                name_en=card.get("name"),
-                rarity=card.get("rarity"),
-                scryfall_id=card.get("id"),
+                name_en=card["name"],
+                scryfall_id=card["id"],
+                rarity=card.get("rarity")
             )
+            if uris := card.get("image_uris"):
+                printing.img_grid_uri = uris.get("grid")
+                printing.img_thumb_uri = uris.get("thumb")
+
             session.add(printing)
             existing[key] = printing
             created += 1
@@ -363,30 +444,113 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
             printing.name_en = card.get("name")
             printing.rarity = card.get("rarity")
             printing.scryfall_id = card.get("id")
+            if uris := card.get("image_uris"):
+                printing.img_grid_uri = uris.get("grid")
+                printing.img_thumb_uri = uris.get("thumb")
             updated += 1
 
     session.commit()
     logger.info("Printings: %d created, %d updated", created, updated)
 
 
+async def update_japanese_data(session: Session):
+    cards_path = await fetch_default_cards(BulkDataType.ALL)
+
+    total = sum(1 for _ in _iter_cards_from_path(cards_path)) if cards_path is not None else 0
+    try:
+        for card in tqdm(_iter_cards_from_path(cards_path), total=total, desc="update_japanese_data"):
+            if card["lang"] != "ja":
+                continue
+            matches = session.execute(
+                select(Printing)
+                .where(
+                    Printing.set_code == card["set"],
+                    Printing.collector_number == card["collector_number"]
+                )
+            ).scalars().all()
+
+            if len(matches) > 1:
+                logger.warning("Found %d matches for %s %s, skipping...",
+                               len(matches), card["set"], card["collector_number"])
+
+            if not matches:
+                continue
+
+            name_jp = ""
+            if name := card.get("printed_name"):
+                name_jp = name
+            elif faces := card.get("card_faces"): # has multiple faces, concatenate the printed names
+                name_jp = " // ".join(face.get("printed_name", "") for face in faces)
+            else:
+                logger.warning("No printed_name or card_faces for %s %s, defaulting to english name", card["set"], card["collector_number"])
+                name_jp = card.get("name")
+                
+            session.execute(
+                update(Printing)
+                .where(
+                    Printing.id == matches[0].id
+                ).values(
+                    scryfall_id_jp=card["id"],
+                    name_jp=name_jp,
+                    img_grid_uri_jp=card.get("image_uris", {}).get("grid", ""),
+                    img_thumb_uri_jp=card.get("image_uris", {}).get("thumb", "")
+                )
+            )
+
+        session.commit()
+    finally:
+        if cards_path is not None:
+            cards_path.unlink(missing_ok=True)
+
+
 async def run(session: Session) -> None:
     await resolve_scryfall_set_codes(session)
-    cards = await fetch_default_cards()
-    sync_printings(session, cards)
-    #await update_japanese_titles(session)
+    cards_path = await fetch_default_cards(BulkDataType.DEFAULT)
+    try:
+        sync_printings(session, cards_path)
+        await update_japanese_data(session)
+    finally:
+        if cards_path is not None:
+            cards_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
     import asyncio
 
     from db import SessionLocal
+    
+    parser = argparse.ArgumentParser(
+        description="Sync local printing data from Scryfall bulk data."
+    )
+    parser.add_argument(
+        "--overrides",
+        type=Path,
+        default=DEFAULT_OVERRIDES_PATH,
+        help="Path to the TOML file containing manual set-code overrides.",
+    )
 
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser(
+        "run",
+        help="Run the full sync pipeline (this is the default behavior).",
+    )
+    subparsers.add_parser(
+        "sets",
+        help="Resolve Hareruya set codes against Scryfall set codes only.",
+    )
+    subparsers.add_parser(
+        "sync_jp",
+        help="Sync Japanese card data from Scryfall.",
+    )
+
+    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-        
+
     with SessionLocal() as session:
-        if len(sys.argv) > 0 and isinstance(sys.argv[1], str):
-            match sys.argv[1]:
-                case "sets":
-                    asyncio.run(resolve_scryfall_set_codes(session))
-        else:
-            asyncio.run(run(session))
+        match args.command:
+            case "sets":
+                asyncio.run(resolve_scryfall_set_codes(session, overrides_path=args.overrides))
+            case "sync_jp":
+                asyncio.run(update_japanese_data(session))
+            case "run" | None:
+                asyncio.run(run(session))

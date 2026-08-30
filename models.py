@@ -79,13 +79,17 @@ class Printing(Base):
     set_code: Mapped[str] = mapped_column(String(32), index=True)
 
     collector_number: Mapped[str] = mapped_column(String(16), index=True)
-    name_en: Mapped[str | None] = mapped_column(String(256))
+    name_en: Mapped[str] = mapped_column(String(256))
     name_jp: Mapped[str | None] = mapped_column(String(256))
     rarity: Mapped[str | None] = mapped_column(String(16))
 
-    # Hareruya's own product id for this printing/language variant is on
-    # the Price row (it differs per language), not here.
-    scryfall_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    scryfall_id: Mapped[str] = mapped_column(String(36), index=True, nullable=True)
+    scryfall_id_jp: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+
+    img_grid_uri: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    img_thumb_uri: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    img_grid_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    img_thumb_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
 
     prices: Mapped[list["Price"]] = relationship(back_populates="printing")
 

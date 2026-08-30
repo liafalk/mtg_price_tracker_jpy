@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from models import Base
 
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql+psycopg://localhost/jpy_mtg_prices"
+    "DATABASE_URL", "postgresql+psycopg://jpy_mtg:jpy_mtg@localhost/jpy_mtg_prices"
 )
 
 engine = create_engine(DATABASE_URL, echo=False, future=True)
