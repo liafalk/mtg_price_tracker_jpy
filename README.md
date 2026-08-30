@@ -47,6 +47,37 @@ way. If a set's numbering doesn't follow this pattern, matches for
 that set will silently fail rather than blow up — check the crawl logs
 for unmatched-doc warnings.
 
+### Manual set-code overrides
+
+Not every Hareruya set auto-resolves to a Scryfall set code (see the
+`X sets need manual scryfall_set_code mapping` warning). Rather than
+editing the DB by hand, add entries to `config/set_code_overrides.toml`:
+
+```toml
+"10ED" = "10e"
+```
+
+Keys are Hareruya's `product` code exactly as stored in
+`sets.hareruya_product_code`; values are the Scryfall set code, which
+you can look up at [scryfall.com/sets](https://scryfall.com/sets) or
+`https://api.scryfall.com/sets`. Overrides always take precedence over
+the automatic guess — including fixing a wrong automatic match, not
+just filling gaps — and `resolve_scryfall_set_codes` (part of every
+`sync_all`/`sync_scryfall` run) picks them up automatically; no code
+changes needed. Get the value wrong and prices silently attach to the
+wrong set, so verify before adding — leaving an entry unresolved (or
+commented out, as the shipped file does for anything unverified) is
+safer than guessing.
+
+A few entries are pre-filled and verified (`10ED`, `CE`, `IE`); the
+rest are commented-out placeholders for the sets that showed up
+unresolved in testing — check them against Scryfall before
+uncommenting. Some (`3EDBB`, `BRO-Retro`, `MH1-RT`) may not be simple
+one-code mappings at all — border color / retro frame might be a
+per-card attribute within the base set rather than its own Scryfall
+set, similar to the Booster Fun situation below — worth confirming
+card-by-card rather than assuming a single override code covers it.
+
 ### Scryfall bulk data format
 
 Scryfall changed their bulk-data format in July 2026: files are now
@@ -149,6 +180,8 @@ scraper/
   tiering.py               # hot/warm/cold assignment + today's crawl list
   crawl.py                 # crawl Hareruya prices, attach to existing printings
   daily_run.py             # daily entrypoint: retier -> pick sets -> crawl
+config/
+  set_code_overrides.toml  # manual Hareruya -> Scryfall set code overrides
 requirements.txt
 docker-compose.yml         # Postgres + app container (see Setup below)
 Dockerfile

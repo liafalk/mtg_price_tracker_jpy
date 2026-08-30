@@ -1,0 +1,52 @@
+# Manual overrides for Hareruya product_code -> Scryfall set_code.
+#
+# Most sets resolve automatically (lowercase Hareruya's product code,
+# check it's a real Scryfall set code -- see
+# scraper/sync_scryfall.resolve_scryfall_set_codes). This file is only
+# for the ones that don't: older/alternate products where Hareruya's
+# code doesn't match Scryfall's convention.
+#
+# Format: "<hareruya_product_code>" = "<scryfall_set_code>"
+# Keys are matched exactly as they appear in Hareruya's product=[XXX]
+# query param (see sets.hareruya_product_code) -- check case/spelling
+# against what sync_sets.py actually stored if an override doesn't seem
+# to take effect.
+#
+# Entries here always win over the automatic guess, including
+# overwriting an already-resolved (possibly wrong) value -- so this is
+# also the place to fix a bad automatic match, not just fill in gaps.
+#
+# Look up the correct code at https://scryfall.com/sets or
+# https://api.scryfall.com/sets before adding an entry -- a wrong value
+# here silently misattributes prices to the wrong set, which is worse
+# than leaving it unresolved (an unresolved set just gets skipped and
+# logged loudly).
+
+# --- Verified ---
+"10ED" = "10e"    # Tenth Edition
+"CE"   = "ced"    # Collector's Edition
+"IE"   = "cei"    # International Edition
+"PO2"  = "p02"    # Portal Second Age
+# --- Still need lookup (uncomment and fill in once verified) ---
+# "CHRBB"         = ""   # Chronicles, black border
+# "4EDBB"         = ""   # Fourth Edition, black border
+# "A4ED"          = ""   # Alternate/foreign Fourth Edition
+# "3EDBB"         = ""   # Revised (Third Edition), black border --
+#                         # possibly not a separate Scryfall set at all;
+#                         # border color may be a per-card attribute
+#                         # rather than its own set, similar to the
+#                         # Booster Fun situation (see README). Worth
+#                         # checking card-by-card before assuming a
+#                         # single override code covers it.
+# "CMA17"         = ""   # Commander Anthology 2018 (naming mismatch)
+# "PT1996"        = ""   # Pro Tour New York 1996 decks
+# "Summer"        = ""   # Summer Magic
+# "MB1+The list"  = ""   # Mystery Booster + The List combined listing --
+#                         # may not map to a single Scryfall set at all,
+#                         # since "The List" spans many sets by design
+# "MB1"           = ""   # Mystery Booster
+# "CSPBuild"      = ""   # Coldsnap theme decks
+# "SLDD"          = ""   # Secret Lair Commander Deck products
+# "MH1-RT"        = ""   # Modern Horizons 1, retro frame -- same
+#                         # possible attribute-vs-set caveat as 3EDBB
+# "BRO-Retro"     = ""   # The Brothers' War, retro frame -- ditto

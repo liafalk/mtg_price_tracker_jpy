@@ -76,7 +76,7 @@ class Printing(Base):
         UniqueConstraint("set_id", "collector_number", name="uq_set_collector_number"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    set: Mapped[int] = mapped_column(Integer, primary_key=True)
     set_id: Mapped[int] = mapped_column(ForeignKey("sets.id"), index=True)
 
     collector_number: Mapped[str] = mapped_column(String(16), index=True)

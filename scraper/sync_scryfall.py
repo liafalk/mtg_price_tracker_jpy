@@ -19,6 +19,9 @@ was retired. `_parse_bulk_body` below handles either shape (gzipped or
 not, JSONL or a single array) so this keeps working if the format
 shifts again -- see its docstring.
 
+Manual set-code overrides (for sets that don't auto-resolve) live in
+config/set_code_overrides.toml -- see load_set_code_overrides below.
+
 Run this after sync_sets.py (it needs `sets.scryfall_set_code` filled
 in to know which Scryfall rows belong to which Hareruya set), and
 re-run it whenever new sets are added -- otherwise there's nothing for
@@ -30,6 +33,8 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import tomllib
+from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
@@ -43,6 +48,8 @@ logger = logging.getLogger(__name__)
 BULK_DATA_INDEX_URL = "https://api.scryfall.com/bulk-data"
 BULK_DATA_TYPE = "default_cards"
 SETS_URL = "https://api.scryfall.com/sets"
+
+DEFAULT_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "config" / "set_code_overrides.toml"
 
 # Be a good citizen: Scryfall explicitly asks for this in their API docs.
 REQUEST_HEADERS = {
@@ -93,13 +100,48 @@ async def _fetch_all_scryfall_set_codes(client: httpx.AsyncClient) -> set[str]:
     return {entry["code"] for entry in resp.json()["data"]}
 
 
-async def resolve_scryfall_set_codes(session: Session) -> None:
-    """Fill in `sets.scryfall_set_code` for any Set missing it.
+def load_set_code_overrides(path: Path | None = None) -> dict[str, str]:
+    """Loads manual hareruya_product_code -> scryfall_set_code overrides
+    from a TOML config file (default: config/set_code_overrides.toml).
 
-    Hareruya's `product` code (e.g. "HOB", "3EDBB") usually matches a
-    Scryfall set code when lowercased, but not always -- retro-frame
-    and a handful of older/alternate products use different
-    conventions on each side.
+    Returns {} if the file doesn't exist -- overrides are optional,
+    most sets resolve automatically. Every value must be a string;
+    anything else raises immediately rather than silently no-op'ing on
+    a malformed entry (e.g. an accidentally-unquoted TOML value).
+    """
+    path = path or DEFAULT_OVERRIDES_PATH
+    if not path.exists():
+        return {}
+
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+
+    for key, value in data.items():
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{path}: value for {key!r} must be a string, "
+                f"got {type(value).__name__}: {value!r}"
+            )
+        if not value:
+            # Commented-out template entries in the shipped config use
+            # empty strings as placeholders -- skip rather than apply.
+            continue
+
+    return {k: v for k, v in data.items() if v}
+
+
+async def resolve_scryfall_set_codes(
+    session: Session, overrides_path: Path | None = None
+) -> None:
+    """Fill in `sets.scryfall_set_code` for every Set.
+
+    Resolution order:
+      1. Manual override from config/set_code_overrides.toml, if the
+         set's hareruya_product_code has an entry there. This always
+         wins, including overwriting an already-resolved value -- it's
+         also how you fix a bad automatic match, not just fill gaps.
+      2. Automatic: lowercase Hareruya's `product` code (e.g. "HOB"),
+         accept it only if it's a *confirmed* real Scryfall set code.
 
     Booster Fun variants ("HOB-BF") are a special case, not a mapping
     gap: Scryfall doesn't mint separate set codes for showcase/
@@ -107,22 +149,41 @@ async def resolve_scryfall_set_codes(session: Session) -> None:
     *base* set (confirmed by Scryfall's own `is:boosterfun` search
     filter, e.g. `set:eld is:boosterfun` returns Eldraine cards, not
     cards in some other set). So a "-BF" Hareruya product code
-    resolves to the same scryfall_set_code as its base set, and two
-    local `Set` rows end up sharing one Scryfall code. sync_printings
-    below disambiguates between them using each card's promo_types.
+    resolves to the same scryfall_set_code as its base set (after
+    stripping the suffix, before step 2 above), and two local `Set`
+    rows end up sharing one Scryfall code. sync_printings below
+    disambiguates between them using each card's promo_types.
 
-    Anything else that doesn't match is left null and logged for
-    manual mapping rather than silently guessed.
+    Anything that doesn't resolve via either step is left null and
+    logged for manual mapping -- add it to the overrides file.
     """
+    overrides = load_set_code_overrides(overrides_path)
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         valid_codes = await _fetch_all_scryfall_set_codes(client)
 
     unresolved: list[Set] = []
     resolved = 0
+    overridden = 0
 
     for set_row in session.execute(select(Set)).scalars().all():
-        if set_row.scryfall_set_code or not set_row.hareruya_product_code:
+        if not set_row.hareruya_product_code:
             continue
+
+        override = overrides.get(set_row.hareruya_product_code)
+        if override:
+            if override not in valid_codes:
+                logger.warning(
+                    "Override %s -> %r is not a recognized Scryfall set code "
+                    "-- applying it anyway, but double-check it",
+                    set_row.hareruya_product_code, override,
+                )
+            set_row.scryfall_set_code = override
+            overridden += 1
+            continue
+
+        if set_row.scryfall_set_code:
+            continue  # already resolved (automatically) in a previous run
 
         base_code = _strip_booster_fun_suffix(set_row.hareruya_product_code)
         candidate = base_code.lower()
@@ -133,11 +194,17 @@ async def resolve_scryfall_set_codes(session: Session) -> None:
             unresolved.append(set_row)
 
     session.commit()
-    logger.info("Resolved %d set codes automatically", resolved)
+    logger.info(
+        "Resolved %d set codes automatically, %d from manual overrides",
+        resolved, overridden,
+    )
     if unresolved:
+        used_path = overrides_path or DEFAULT_OVERRIDES_PATH
         logger.warning(
-            "%d sets need manual scryfall_set_code mapping (no direct match): %s",
+            "%d sets still need manual scryfall_set_code mapping -- add "
+            "them to %s: %s",
             len(unresolved),
+            used_path,
             ", ".join(s.hareruya_product_code or "?" for s in unresolved[:20]),
         )
 
@@ -277,17 +344,12 @@ def sync_printings(session: Session, cards: list[dict[str, Any]]) -> None:
     unmatched_sets: set[str] = set()
 
     for card in _relevant_rows(cards):
-        set_row = _resolve_local_set(card, primary_by_code, booster_fun_by_code)
-        if set_row is None:
-            unmatched_sets.add(card["set"])
-            continue
-
-        key = (set_row.id, card["collector_number"])
+        key = (card["set"], card["collector_number"])
         printing = existing.get(key)
 
         if printing is None:
             printing = Printing(
-                set_id=set_row.id,
+                set=card["set"],
                 collector_number=card["collector_number"],
                 name_en=card.get("name"),
                 rarity=card.get("rarity"),

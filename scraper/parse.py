@@ -15,14 +15,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_COLLECTOR_NUMBER_RE = re.compile(r"^\((\d+)\)")
+_COLLECTOR_NUMBER_RE = re.compile(r"^(?:【Foil】)?\((\d+)\)")
 
 # Hareruya zero-pads collector numbers in product names (e.g. "(099)"),
 # Scryfall does not (e.g. "99"). Since Scryfall is the identity source
 # of truth (see sync_scryfall.py), we normalize to Scryfall's convention
 # so lookups against `printings.collector_number` actually match.
 _LEADING_ZEROS_RE = re.compile(r"^0*(\d+)(.*)$")
-
 
 def normalize_collector_number(collector_number: str) -> str:
     match = _LEADING_ZEROS_RE.match(collector_number.strip())
@@ -58,16 +57,24 @@ def parse_doc(doc: dict) -> ParsedDoc:
     product_name = doc.get("product_name", "") or ""
     product_name_en = doc.get("product_name_en", "") or ""
 
+    # Ignore art cards
+    if product_name.find("アート・カード") > 0:
+        return None
+
+    # Ignore tokens
+    if product_name.find("トークン") > 0:
+        return None
+        
     raw_collector_number = extract_collector_number(product_name) or extract_collector_number(
         product_name_en
     )
-    collector_number = (
-        normalize_collector_number(raw_collector_number) if raw_collector_number else None
-    )
+
+    if raw_collector_number is None:
+        return None
 
     return ParsedDoc(
         hareruya_product_id=int(doc["product"]),
-        collector_number=collector_number,
+        collector_number=normalize_collector_number(raw_collector_number),
         name_en=doc.get("card_name"),
         name_jp=None,  # card_name in the sample data is already English;
         # the JP name would need to be pulled from product_name if needed.
@@ -81,4 +88,4 @@ def parse_doc(doc: dict) -> ParsedDoc:
 
 
 def parse_docs(docs: list[dict]) -> list[ParsedDoc]:
-    return [parse_doc(d) for d in docs]
+    return [x for x in [parse_doc(d) for d in docs] if x is not None]

@@ -38,7 +38,7 @@ SEARCH_PATH = "/ja/products/search/unisearch_api"
 # don't move that fast. Tune per set-tier in the caller, not here.
 DEFAULT_MIN_INTERVAL_SECONDS = 45.0
 
-ROWS_PER_PAGE = 60
+ROWS_PER_PAGE = 4000
 
 
 @dataclass
@@ -70,7 +70,7 @@ class HareruyaFilters:
             "format": "",
             "priceFrom": self.price_from or "",
             "priceTo": self.price_to or "",
-            "illustrator": "",
+            "illustrator": ""
         }
         if self.rarity:
             for i, r in enumerate(self.rarity):
@@ -152,6 +152,8 @@ class HareruyaClient:
         # The resolved string is already URL-encoded (fq=...&sort=...&rows=...&page=N);
         # pass it through as the raw query rather than re-encoding it.
         await self._rate_limiter.wait()
+        # change number of rows
+        query_string= query_string.replace("rows=60", f"rows={ROWS_PER_PAGE}")
         resp = await self._http.get(f"{SEARCH_PATH}?{query_string}")
         resp.raise_for_status()
         return resp.json()

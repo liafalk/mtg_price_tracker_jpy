@@ -65,7 +65,7 @@ async def crawl_set(
     set_row: Set,
     client: HareruyaClient,
     *,
-    non_foil_only: bool = True,
+    non_foil_only: bool = False,
 ) -> int:
     """Crawl every page for one set, appending Price rows for matched printings.
 
@@ -108,8 +108,8 @@ async def crawl_set(
     session.commit()
 
     logger.info(
-        "Crawled set %s (%s): %d price rows written, %d docs unmatched",
-        set_row.hareruya_product_code, set_row.hareruya_cardset_id, written, unmatched,
+        "Crawled set %s (%s): got %d rows, %d price rows written, %d docs unmatched",
+        set_row.hareruya_product_code, set_row.hareruya_cardset_id, len(parsed), written, unmatched,
     )
     if unmatched and written == 0:
         logger.warning(
@@ -123,7 +123,7 @@ async def crawl_sets(
     session: Session,
     sets: list[Set],
     *,
-    min_interval_seconds: float = 45.0,
+    min_interval_seconds: float = 4.0,
 ) -> None:
     """Crawl multiple sets sequentially through a single rate-limited client.
 
@@ -147,8 +147,8 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    cardset_id = int(sys.argv[1]) if len(sys.argv) > 1 else 426  # HOB by default
+    set_code = str(sys.argv[1]) if len(sys.argv) > 1 else "hob"  # HOB by default
 
     with SessionLocal() as session:
-        set_row = session.query(Set).filter_by(hareruya_cardset_id=cardset_id).one()
-        asyncio.run(crawl_sets(session, [set_row]))
+        set_row = session.query(Set).filter_by(scryfall_set_code=set_code).all()
+        asyncio.run(crawl_sets(session, set_row))
