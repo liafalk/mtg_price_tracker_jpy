@@ -99,6 +99,7 @@ def get_prices(
 
         card_name = next((p.name_en for p in printings if p.name_en), None)
         rarity = next((p.rarity for p in printings if p.rarity), None)
+        scryfall_id = next((p.scryfall_id for p in printings if p.scryfall_id), None)
 
         history: dict[str, list[dict[str, Any]]] = {}
         latest_by_bucket: dict[str, Price] = {}
@@ -131,6 +132,11 @@ def get_prices(
                 "set_code": set_code.strip().lower(),
                 "collector_number": normalize_collector_number(collector_number.strip()),
                 "rarity": rarity,
+                # Scryfall's own image-redirect endpoint; the frontend
+                # builds the actual <img> URL from this rather than us
+                # storing/serving image URLs ourselves -- one less thing
+                # to keep in sync as Scryfall's CDN paths change.
+                "scryfall_id": scryfall_id,
             },
             "latest": latest,
             "history": history,
