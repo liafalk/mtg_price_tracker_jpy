@@ -19,29 +19,33 @@
     </div>
   </div>
 
-  <div style="margin-bottom: 1rem;">
-    <a href="/" style="color: #2563eb; text-decoration: none;">← Back to lookup</a>
+  <div class="search-tools" aria-label="Search tools">
+    <form id="search-form" class="inline-search-form">
+      <input id="search-term" placeholder="Search card name" autocomplete="off">
+      <button id="search-btn" type="submit">Search</button>
+    </form>
+
+    <span class="search-divider" aria-hidden="true">or</span>
+
+    <form id="lookup-form" class="inline-search-form">
+      <select id="set-code" required>
+        <option value="">Select set code</option>
+      </select>
+      <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
+      <button id="submit-btn" type="submit">Look up</button>
+    </form>
   </div>
-
-  <form id="search-form" style="margin-bottom:0.75rem;">
-    <input id="search-term" placeholder="Search card name" autocomplete="off" style="width: 18rem;">
-    <button id="search-btn" type="submit">Search</button>
-  </form>
-
-  <form id="lookup-form">
-    <select id="set-code" required>
-      <option value="">Select set code</option>
-    </select>
-    <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
-    <button id="submit-btn" type="submit">Look up</button>
-  </form>
 
   <div id="error"></div>
 
   <div id="card-header">
-    <img id="card-image" alt="">
+    <div class="card-visual">
+      <img id="card-image" alt="">
+      <button id="flip-card-btn" type="button" hidden>Show back</button>
+    </div>
     <div class="card-content">
       <h2 id="card-title"></h2>
+      <div id="card-meta"></div>
       <div id="price-summary"></div>
       <div id="chart-wrap">
         <canvas id="price-chart"></canvas>

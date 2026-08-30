@@ -91,6 +91,13 @@ class Printing(Base):
     img_grid_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     img_thumb_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
 
+    double_faced: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    img_back_grid_uri: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    img_back_thumb_uri: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    img_back_grid_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    img_back_thumb_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+
     prices: Mapped[list["Price"]] = relationship(back_populates="printing")
 
     def __repr__(self) -> str:  # pragma: no cover

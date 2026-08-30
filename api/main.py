@@ -238,13 +238,18 @@ def get_prices(
                 "set_code": set_code.strip().lower(),
                 "collector_number": normalize_collector_number(collector_number.strip()),
                 "rarity": printing.rarity,
+                "double_faced": printing.double_faced,
                 "scryfall_id": printing.scryfall_id,
                 "scryfall_id_jp": printing.scryfall_id_jp,
-                "img":{
+                "img": {
                     "grid": printing.img_grid_uri,
                     "thumb": printing.img_thumb_uri,
                     "grid_jp": printing.img_grid_uri_jp,
                     "thumb_jp": printing.img_thumb_uri_jp,
+                    "back_grid": printing.img_back_grid_uri,
+                    "back_thumb": printing.img_back_thumb_uri,
+                    "back_grid_jp": printing.img_back_grid_uri_jp,
+                    "back_thumb_jp": printing.img_back_thumb_uri_jp,
                 }
             },
             "latest": latest,

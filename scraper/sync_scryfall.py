@@ -423,30 +423,58 @@ def sync_printings(session: Session, cards: Path | list[dict[str, Any]]) -> None
     iterable = _iter_relevant_cards(cards)
     for card in tqdm(iterable, total=total, desc="sync_printings"):
         key = (card["set"], card["collector_number"])
+
+        double_faced = card["layout"] in ("transform", "modal_dfc", "double_faced_token")
+        if printed_name := card.get("printed_name"):
+            name_en = printed_name
+        elif not double_faced and (faces := card.get("card_faces")):
+            name_en = faces[0].get("printed_name", faces[0].get("name", card["name"]))
+        else:
+            name_en = card["name"]
+
+        img_grid_uri = None
+        img_thumb_uri = None
+        img_back_grid_uri = None
+        img_back_thumb_uri = None
+
+        if double_faced and (faces := card.get("card_faces")):
+            img_grid_uri = faces[0].get("image_uris", {}).get("grid")
+            img_thumb_uri = faces[0].get("image_uris", {}).get("thumb")
+            if double_faced:
+                img_back_grid_uri = faces[1].get("image_uris", {}).get("grid")
+                img_back_thumb_uri = faces[1].get("image_uris", {}).get("thumb")
+        else:
+            img_grid_uri = card.get("image_uris", {}).get("grid")
+            img_thumb_uri = card.get("image_uris", {}).get("thumb")
+
         printing = existing.get(key)
 
         if printing is None:
             printing = Printing(
                 set_code=card["set"],
                 collector_number=card["collector_number"],
-                name_en=card["name"],
+                name_en=name_en,
                 scryfall_id=card["id"],
-                rarity=card.get("rarity")
+                rarity=card.get("rarity"),
+                double_faced=double_faced
             )
-            if uris := card.get("image_uris"):
-                printing.img_grid_uri = uris.get("grid")
-                printing.img_thumb_uri = uris.get("thumb")
+            printing.img_grid_uri = img_grid_uri
+            printing.img_thumb_uri = img_thumb_uri
+            printing.img_back_grid_uri = img_back_grid_uri
+            printing.img_back_thumb_uri = img_back_thumb_uri
 
             session.add(printing)
             existing[key] = printing
             created += 1
         else:
-            printing.name_en = card.get("name")
+            printing.name_en = name_en
             printing.rarity = card.get("rarity")
-            printing.scryfall_id = card.get("id")
-            if uris := card.get("image_uris"):
-                printing.img_grid_uri = uris.get("grid")
-                printing.img_thumb_uri = uris.get("thumb")
+            printing.scryfall_id = card["id"]
+            printing.double_faced = double_faced
+            printing.img_grid_uri = img_grid_uri
+            printing.img_thumb_uri = img_thumb_uri
+            printing.img_back_grid_uri = img_back_grid_uri
+            printing.img_back_thumb_uri = img_back_thumb_uri
             updated += 1
 
     session.commit()
@@ -475,16 +503,35 @@ async def update_japanese_data(session: Session):
 
             if not matches:
                 continue
+            double_faced = matches[0].double_faced
 
             name_jp = ""
             if name := card.get("printed_name"):
                 name_jp = name
-            elif faces := card.get("card_faces"): # has multiple faces, concatenate the printed names
-                name_jp = " // ".join(face.get("printed_name", "") for face in faces)
+            elif faces := card.get("card_faces"):
+                if double_faced:
+                    name_jp = " // ".join(face.get("printed_name", "") for face in faces)
+                else:
+                    name_jp = faces[0].get("printed_name", "")
             else:
                 logger.warning("No printed_name or card_faces for %s %s, defaulting to english name", card["set"], card["collector_number"])
                 name_jp = card.get("name")
-                
+
+            img_grid_uri = None
+            img_thumb_uri = None
+            img_back_grid_uri = None
+            img_back_thumb_uri = None
+
+            if double_faced and (faces := card.get("card_faces")):
+                img_grid_uri = faces[0].get("image_uris", {}).get("grid")
+                img_thumb_uri = faces[0].get("image_uris", {}).get("thumb")
+                if double_faced:
+                    img_back_grid_uri = faces[1].get("image_uris", {}).get("grid")
+                    img_back_thumb_uri = faces[1].get("image_uris", {}).get("thumb")
+            else:
+                img_grid_uri = card.get("image_uris", {}).get("grid")
+                img_thumb_uri = card.get("image_uris", {}).get("thumb")
+
             session.execute(
                 update(Printing)
                 .where(
@@ -492,8 +539,10 @@ async def update_japanese_data(session: Session):
                 ).values(
                     scryfall_id_jp=card["id"],
                     name_jp=name_jp,
-                    img_grid_uri_jp=card.get("image_uris", {}).get("grid", ""),
-                    img_thumb_uri_jp=card.get("image_uris", {}).get("thumb", "")
+                    img_grid_uri_jp=img_grid_uri,
+                    img_thumb_uri_jp=img_thumb_uri,
+                    img_back_grid_uri_jp=img_back_grid_uri,
+                    img_back_thumb_uri_jp=img_back_thumb_uri
                 )
             )
 
@@ -542,6 +591,10 @@ if __name__ == "__main__":
         "sync_jp",
         help="Sync Japanese card data from Scryfall.",
     )
+    subparsers.add_parser(
+        "sync_en",
+        help="Sync English card data from Scryfall (default_cards bulk data).",
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -550,6 +603,13 @@ if __name__ == "__main__":
         match args.command:
             case "sets":
                 asyncio.run(resolve_scryfall_set_codes(session, overrides_path=args.overrides))
+            case "sync_en":
+                cards_path = asyncio.run(fetch_default_cards(BulkDataType.DEFAULT))
+                try:
+                    sync_printings(session, cards_path)
+                finally:
+                    if cards_path is not None:
+                        cards_path.unlink(missing_ok=True)
             case "sync_jp":
                 asyncio.run(update_japanese_data(session))
             case "run" | None:

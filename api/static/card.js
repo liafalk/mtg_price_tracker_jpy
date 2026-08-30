@@ -1,5 +1,6 @@
 const cardImage = document.getElementById('card-image');
 const titleEl = document.getElementById('card-title');
+const cardMetaEl = document.getElementById('card-meta');
 const priceSummary = document.getElementById('price-summary');
 const table = document.getElementById('latest-table');
 const tbody = table.querySelector('tbody');
@@ -15,11 +16,13 @@ const lookupForm = document.getElementById('lookup-form');
 const setCodeInput = document.getElementById('set-code');
 const collectorNumberInput = document.getElementById('collector-number');
 const submitBtn = document.getElementById('submit-btn');
+const flipCardButton = document.getElementById('flip-card-btn');
 
 const I18N = window.I18N || {};
 let activeLanguage = 'en';
 let chart = null;
 let currentCardData = null;
+let isBackFace = false;
 
 const BUCKET_LABELS = {
   jp_nonfoil: { en: 'JP (non-foil)', ja: 'JP (通常版)' },
@@ -84,22 +87,44 @@ languageButtons.forEach((button) => {
   });
 });
 
+flipCardButton.addEventListener('click', () => {
+  if (!currentCardData?.card) return;
+  const hasBackFace = Boolean(currentCardData.card.double_faced || currentCardData.card.img?.back_grid || currentCardData.card.img?.back_grid_jp);
+  if (!hasBackFace) return;
+
+  isBackFace = !isBackFace;
+  updateDisplayedCardLanguage();
+});
+
 function updateDisplayedCardLanguage() {
   if (!currentCardData) return;
 
   const card = currentCardData.card;
   const name = activeLanguage === 'ja' ? card.name_jp : card.name_en;
-  const rarity = card.rarity ? ` · ${card.rarity}` : '';
-  const displayTitle = `${name} — ${card.set_code.toUpperCase()} #${card.collector_number}${rarity}`;
-  titleEl.textContent = displayTitle;
-  document.title = `${displayTitle} | ${t('pageTitle')}`;
+  const rarityKey = String(card.rarity || '').toLowerCase();
+  const rarityText = I18N[activeLanguage]?.rarity?.[rarityKey] || card.rarity || '—';
+  const metaText = `${card.set_code.toUpperCase()} #${card.collector_number} · ${rarityText}`;
 
-  const imageUrl = activeLanguage === 'ja'
+  titleEl.textContent = name;
+  cardMetaEl.textContent = metaText;
+  document.title = `${name} — ${metaText} | ${t('pageTitle')}`;
+
+  const hasBackFace = Boolean(card.double_faced || card.img?.back_grid || card.img?.back_grid_jp);
+  flipCardButton.hidden = !hasBackFace;
+  if (hasBackFace) {
+    flipCardButton.textContent = isBackFace ? (activeLanguage === 'ja' ? '表面を表示' : 'Show front') : (activeLanguage === 'ja' ? '裏面を表示' : 'Show back');
+  }
+
+  const frontImage = activeLanguage === 'ja'
     ? (card.img.grid_jp || card.img.grid)
     : card.img.grid;
+  const backImage = activeLanguage === 'ja'
+    ? (card.img.back_grid_jp || card.img.back_grid || frontImage)
+    : (card.img.back_grid || frontImage);
+  const imageUrl = isBackFace ? backImage : frontImage;
 
   if (card.scryfall_id || imageUrl) {
-    cardImage.src = imageUrl || card.img.grid;
+    cardImage.src = imageUrl || frontImage || card.img.grid;
     cardImage.alt = name || 'Card image';
     cardImage.style.display = 'block';
     cardImage.onerror = () => { cardImage.style.display = 'none'; };
