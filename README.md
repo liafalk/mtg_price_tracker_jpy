@@ -47,6 +47,20 @@ way. If a set's numbering doesn't follow this pattern, matches for
 that set will silently fail rather than blow up — check the crawl logs
 for unmatched-doc warnings.
 
+### Scryfall bulk data format
+
+Scryfall changed their bulk-data format in July 2026: files are now
+gzip-compressed JSONL (one JSON object per line) served via a
+`jsonl_download_uri` field, replacing the old single-JSON-array
+`download_uri` (fully retired July 20, 2026). `sync_scryfall.py`
+handles both shapes (`_parse_bulk_body`), preferring `jsonl_download_uri`
+when present and falling back to `download_uri` otherwise, so a future
+format change is less likely to break this outright -- but if
+`sync_scryfall` ever throws a `KeyError`/`ValueError` around bulk data
+again, this is the first place to look: check what
+`https://api.scryfall.com/bulk-data` actually returns now and compare
+against what this code expects.
+
 ### Booster Fun ("-BF") sets
 
 Hareruya sells showcase/extended-art/borderless variants as a

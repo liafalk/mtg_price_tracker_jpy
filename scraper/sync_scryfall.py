@@ -12,6 +12,13 @@ numbers on its storefront follow the English checklist numbering
 regardless of which language copy is being sold, so English is the
 correct identity to key against even though we're pricing JP listings.
 
+As of Scryfall's July 2026 API change, bulk files are served as
+gzip-compressed JSONL (one JSON object per line) via a
+`jsonl_download_uri` field; the older single-JSON-array `download_uri`
+was retired. `_parse_bulk_body` below handles either shape (gzipped or
+not, JSONL or a single array) so this keeps working if the format
+shifts again -- see its docstring.
+
 Run this after sync_sets.py (it needs `sets.scryfall_set_code` filled
 in to know which Scryfall rows belong to which Hareruya set), and
 re-run it whenever new sets are added -- otherwise there's nothing for
@@ -20,6 +27,8 @@ the price crawler to attach prices to.
 
 from __future__ import annotations
 
+import gzip
+import json
 import logging
 from typing import Any, Iterator
 
@@ -48,7 +57,17 @@ async def _get_bulk_data_download_uri(client: httpx.AsyncClient) -> str:
     entries = resp.json()["data"]
     for entry in entries:
         if entry["type"] == BULK_DATA_TYPE:
-            return entry["download_uri"]
+            # jsonl_download_uri is current as of the July 2026 format
+            # change; download_uri is the retired pre-change field, kept
+            # here only as a fallback in case a cached/older index is
+            # ever served.
+            uri = entry.get("jsonl_download_uri") or entry.get("download_uri")
+            if not uri:
+                raise ValueError(
+                    f"bulk-data entry for {BULK_DATA_TYPE!r} has neither "
+                    f"jsonl_download_uri nor download_uri: {entry!r}"
+                )
+            return uri
     raise ValueError(f"No bulk-data entry of type {BULK_DATA_TYPE!r} found")
 
 
@@ -123,21 +142,54 @@ async def resolve_scryfall_set_codes(session: Session) -> None:
         )
 
 
+def _parse_bulk_body(raw: bytes) -> list[dict[str, Any]]:
+    """Parses a Scryfall bulk-data response body, tolerating either of
+    the shapes Scryfall has served over time:
+
+      - gzip-compressed JSONL (current, as of the July 2026 format
+        change): one JSON object per line, body is raw gzip bytes.
+      - plain JSONL: same, but not gzip-compressed (e.g. if the HTTP
+        client already transparently decoded a Content-Encoding: gzip
+        header, which is a different thing from the file itself being
+        a .jsonl.gz archive).
+      - a single top-level JSON array (the pre-change format): kept as
+        a fallback so this doesn't break if an older/cached endpoint
+        is ever hit.
+
+    We detect which shape we got rather than assuming, since trusting
+    a hardcoded format is exactly what broke on the last format change.
+    """
+    try:
+        text = gzip.decompress(raw).decode("utf-8")
+    except OSError:
+        # Not gzip-compressed -- either already decoded for us, or was
+        # never gzipped in the first place.
+        text = raw.decode("utf-8")
+
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        return json.loads(text)
+
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
 async def fetch_default_cards() -> list[dict[str, Any]]:
     """Downloads and parses the full default_cards bulk file.
 
     This is a large file (several hundred MB as of writing). Fine for a
     periodic batch job; don't call this per-request. If memory becomes
-    an issue, switch to a streaming JSON parser (e.g. ijson) -- the
-    logic below doesn't care how the dicts arrive, only that it gets an
-    iterable of card objects.
+    an issue, switch to a streaming parser -- the logic below doesn't
+    care how the dicts arrive, only that it gets an iterable of card
+    objects.
     """
-    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
         download_uri = await _get_bulk_data_download_uri(client)
         logger.info("Downloading Scryfall bulk data from %s", download_uri)
         resp = await client.get(download_uri, headers=REQUEST_HEADERS)
         resp.raise_for_status()
-        return resp.json()
+        cards = _parse_bulk_body(resp.content)
+        logger.info("Parsed %d cards from bulk data", len(cards))
+        return cards
 
 
 def _relevant_rows(cards: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
