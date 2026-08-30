@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     with SessionLocal() as session:
-        sets = session.execute(select(Set).where(Set.last_crawled_at == None)).scalars().all()
+        sets = session.execute(select(Set)).scalars().all()
 
         filtered_sets = [s for s in sets if s.set_code is not None]
 

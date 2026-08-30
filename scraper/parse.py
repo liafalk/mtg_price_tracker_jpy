@@ -69,25 +69,27 @@ def parse_doc(doc: dict) -> ParsedDoc:
     if product_name.find("トークン") > 0:
         return None
 
-    # Ignore promo stamps
-    if product_name.find("プロモ") > 0:
-        return None
-
-    # Ignore prerelease stamp
-    if product_name.find("■プレリリース■") > 0:
-        return None
-
+    # Promo / prerelease cards still map to their Scryfall variants
+    # (e.g. TLA -> PTLA, 226 -> 226p or 226s), so we keep them in the
+    # pipeline and let the crawl matcher resolve the correct printing.
     raw_collector_number = extract_collector_number(product_name) or extract_collector_number(
         product_name_en
     )
 
     if raw_collector_number is None:
-        logger.warning("Could not extract collector number for product=%s in set=%s; skipping", doc.get("product"), doc.get("cardset"))
-        return None
+        logger.warning(
+            "Could not extract collector number for product=%s in set=%s; keeping doc for name-based fallback",
+            doc.get("product"),
+            doc.get("cardset"),
+        )
 
     return ParsedDoc(
         hareruya_product_id=int(doc["product"]),
-        collector_number=normalize_collector_number(raw_collector_number),
+        collector_number=(
+            normalize_collector_number(raw_collector_number)
+            if raw_collector_number is not None
+            else None
+        ),
         card_name=doc.get("card_name"),
         product_name=product_name,
         language=_LANGUAGE_MAP.get(str(doc.get("language")), "en"),

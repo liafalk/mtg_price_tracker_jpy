@@ -19,6 +19,7 @@ import asyncio
 import datetime as dt
 import logging
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from models import Language, Price, Printing, Set
@@ -29,6 +30,36 @@ from scraper.sync_scryfall import _strip_booster_fun_suffix
 logger = logging.getLogger(__name__)
 
 _SET_CODE_RE = re.compile(r".*\[(.*)]")
+
+
+def _candidate_set_codes(set_code: str | None) -> list[str]:
+    if not set_code:
+        return []
+
+    normalized = set_code.strip()
+    candidates = [normalized]
+
+    lowered = normalized.lower()
+    if lowered.startswith("p") and len(normalized) > 1:
+        candidates.append(normalized[1:])
+    else:
+        candidates.append(f"p{normalized}")
+
+    return list(dict.fromkeys(candidates))
+
+
+def _candidate_collector_numbers(collector_number: str | None) -> list[str]:
+    if collector_number is None:
+        return []
+
+    normalized = collector_number.strip()
+    candidates = [normalized]
+
+    if re.fullmatch(r"\d+", normalized):
+        candidates.extend([f"{normalized}p", f"{normalized}s"])
+
+    return list(dict.fromkeys(candidates))
+
 
 def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | None:
     """Look up the printing this price observation belongs to.
@@ -41,13 +72,6 @@ def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | 
     way the price observation is dropped rather than guessed into a
     new row.
     """
-    if doc.collector_number is None:
-        logger.warning(
-            "Could not extract collector number for product=%s in set=%s; skipping",
-            doc.hareruya_product_id, set_row.hareruya_cardset_id,
-        )
-        return None
-
     set_code = set_row.set_code
 
     if set_row.set_code is None:
@@ -59,19 +83,83 @@ def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | 
             logger.warning("Set has no Scryfall set code, skipping...")
             return None
 
-    printing = (
-        session.query(Printing)
-        .filter_by(set_code=set_code, collector_number=doc.collector_number)
-        .one_or_none()
-    )
-    if printing is None:
+    if doc.collector_number is not None:
+        candidate_collector_numbers = _candidate_collector_numbers(doc.collector_number)
+        for candidate_set_code in _candidate_set_codes(set_code):
+            for candidate_number in candidate_collector_numbers:
+                printing = (
+                    session.query(Printing)
+                    .filter_by(set_code=candidate_set_code, collector_number=candidate_number)
+                    .one_or_none()
+                )
+                if printing is not None:
+                    if candidate_set_code != set_code or candidate_number != doc.collector_number:
+                        logger.info(
+                            "Matched variant printing for set=%s collector=%s via set=%s collector=%s (product=%s)",
+                            set_code,
+                            doc.collector_number,
+                            candidate_set_code,
+                            candidate_number,
+                            doc.hareruya_product_id,
+                        )
+                    return printing
+
         logger.warning(
             "No matching Scryfall printing for set=%s collector_number=%s "
             "(product=%s) -- run sync_scryfall first, or this is a genuine "
             "mismatch worth checking by hand",
             set_code, doc.collector_number, doc.hareruya_product_id,
         )
-    return printing
+        return None
+
+    name_candidates = {
+        candidate.strip()
+        for candidate in (
+            doc.card_name,
+            doc.product_name,
+        )
+        if candidate and candidate.strip()
+    }
+    candidate_names = []
+    for name in name_candidates:
+        cleaned = re.sub(r"\s*\[[^\]]+\]\s*", " ", name).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if cleaned:
+            candidate_names.append(cleaned)
+
+    if not candidate_names:
+        logger.warning(
+            "Could not resolve printing for set=%s product=%s without a collector number or card name",
+            set_code, doc.hareruya_product_id,
+        )
+        return None
+
+    normalized_query = session.query(Printing).filter(Printing.set_code == set_code)
+    name_filter = None
+    for name in candidate_names:
+        clause = or_(
+            func.lower(Printing.name_en) == name.lower(),
+            func.lower(Printing.name_jp) == name.lower(),
+        )
+        name_filter = clause if name_filter is None else name_filter | clause
+
+    printing = normalized_query.filter(name_filter).order_by(Printing.id).first()
+    if printing is not None:
+        logger.info(
+            "Matched printing for set=%s by name fallback for product=%s (%s)",
+            set_code,
+            doc.hareruya_product_id,
+            ", ".join(candidate_names),
+        )
+        return printing
+
+    logger.warning(
+        "No matching Scryfall printing for set=%s by name fallback; product=%s candidates=%s",
+        set_code,
+        doc.hareruya_product_id,
+        candidate_names,
+    )
+    return None
 
 
 async def crawl_set(
