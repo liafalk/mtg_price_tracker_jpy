@@ -108,9 +108,51 @@ scraper/
   crawl.py                 # crawl Hareruya prices, attach to existing printings
   daily_run.py             # daily entrypoint: retier -> pick sets -> crawl
 requirements.txt
+docker-compose.yml         # Postgres + app container (see Setup below)
+Dockerfile
 ```
 
 ## Setup
+
+You need a Postgres server reachable at `DATABASE_URL` — nothing here
+runs one for you automatically. Two ways to get one:
+
+### Option A: Docker Compose (recommended)
+
+Starts Postgres (with a persistent volume) and an `app` container
+with dependencies pre-installed, on one network:
+
+```bash
+docker compose up -d db          # just the database
+python db.py                     # or: docker compose run --rm app python db.py
+```
+
+Then run any script through the `app` service so it shares the
+container network and `DATABASE_URL` automatically:
+
+```bash
+docker compose run --rm app python -m scraper.sync_all
+docker compose run --rm app python -m scraper.crawl 426
+docker compose run --rm app python -m scraper.daily_run
+```
+
+Postgres is also exposed on `localhost:5432` (user/pass/db all
+`jpy_mtg` / `jpy_mtg` / `jpy_mtg_prices` — change these in
+`docker-compose.yml` before running this for real) if you'd rather run
+the Python scripts on the host against the containerized DB. There's
+also an [Adminer](https://www.adminer.org/) UI at `localhost:8081` if
+you want to browse the tables without a DB client installed.
+
+To schedule the daily crawl, point cron/systemd at `docker compose run`
+from the host, e.g. a crontab entry like:
+
+```
+0 3 * * * cd /path/to/jpy-mtg-prices && docker compose run --rm app python -m scraper.daily_run
+```
+
+### Option B: Local Postgres + venv
+
+If you already have Postgres running somewhere:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate

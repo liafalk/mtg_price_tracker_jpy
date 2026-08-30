@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jpy_mtg
+      POSTGRES_PASSWORD: jpy_mtg
+      POSTGRES_DB: jpy_mtg_prices
+    ports:
+      # Exposed to the host so you can connect with psql/a GUI client
+      # directly; the `app` service talks to `db` over the internal
+      # network instead (see DATABASE_URL below), not through this port.
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jpy_mtg -d jpy_mtg_prices"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Adminer gives you a quick web UI to poke at the DB without installing
+  # a client locally. Optional -- comment out if you don't want it.
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://jpy_mtg:jpy_mtg@db:5432/jpy_mtg_prices
+    volumes:
+      - .:/app
+    # No command by default -- this service exists so you can run
+    # one-off scripts against the same network/env as the scheduled
+    # crawl, e.g.:
+    #   docker compose run --rm app python db.py
+    #   docker compose run --rm app python -m scraper.sync_all
+    #   docker compose run --rm app python -m scraper.crawl 426
+    command: ["sleep", "infinity"]
+
+volumes:
+  db_data:
