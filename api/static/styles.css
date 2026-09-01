@@ -32,6 +32,84 @@ body {
   background: var(--bg);
 }
 
+.layout-shell {
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.main-column {
+  min-width: 0;
+  width: 100%;
+  margin: 0 auto;
+  order: 2;
+}
+
+.sidebar-panel {
+  position: absolute;
+  left: 0;
+  top: 1rem;
+  width: 270px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 1rem 0.9rem;
+  box-shadow: 0 10px 24px rgba(36, 54, 74, 0.06);
+  transform: translateX(calc(-100% - 0.9rem));
+  order: 1;
+}
+
+.sidebar-panel h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1rem;
+}
+
+.recent-set-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.recent-set-item {
+  display: block;
+  padding: 0.6rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(244, 247, 250, 0.75);
+  text-decoration: none;
+  color: var(--ink);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.recent-set-item:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.recent-set-code {
+  display: block;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
+.recent-set-name {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.94rem;
+  line-height: 1.3;
+}
+
+.recent-set-date {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .page-header {
   display: flex;
   align-items: center;
@@ -554,6 +632,23 @@ a:hover {
   select,
   button {
     width: 100%;
+  }
+
+  .layout-shell {
+    width: 100%;
+  }
+
+  .main-column,
+  .sidebar-panel {
+    order: initial;
+  }
+
+  .sidebar-panel {
+    position: static;
+    transform: none;
+    width: 100%;
+    margin-left: 0;
+    margin-top: 1rem;
   }
 
   #card-header {

@@ -2,9 +2,10 @@
 SQLAlchemy models for the JPY MTG price tracker.
 
 Schema shape:
-    sets       -- one row per Hareruya "cardset" (maps to a Scryfall set)
-    printings  -- one row per physical printing (set + collector number)
-    prices     -- append-only log of price observations per printing/language
+    sets            -- canonical Scryfall set listings and metadata
+    sets_hareruya   -- Hareruya cardset rows, each related to a Scryfall set
+    printings       -- one row per physical printing (set + collector number)
+    prices          -- append-only log of price observations per printing/language
 
 We deliberately keep `prices` append-only rather than upserting a single
 row per printing, so we get historical trend data for free later.
@@ -40,31 +41,51 @@ class Tier(str, enum.Enum):
     cold = "cold"
 
 
-class Set(Base):
-    """A Hareruya `cardset`, joined against a Scryfall set via product_code."""
+class ScryfallSet(Base):
+    """Canonical Scryfall set listing, used for set metadata and set code lookup."""
 
     __tablename__ = "sets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    name_en: Mapped[str] = mapped_column(String(256))
+    name_jp: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    release_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
 
-    # Hareruya identifiers
+    hareruya_sets: Mapped[list["HareruyaSet"]] = relationship(back_populates="scryfall_set")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ScryfallSet {self.code}>"
+
+
+class HareruyaSet(Base):
+    """A Hareruya `cardset`, joined against the canonical Scryfall set listing."""
+
+    __tablename__ = "sets_hareruya"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
     hareruya_cardset_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
     hareruya_product_code: Mapped[str | None] = mapped_column(String(32), index=True)
-    
     name_jp: Mapped[str] = mapped_column(String(256))
-
-    # Scryfall join key -- usually hareruya_product_code.lower(), but not
-    # guaranteed (see sync_scryfall.py), so store it explicitly once resolved.
     set_code: Mapped[str | None] = mapped_column(String(16), index=True)
+    scryfall_set_code: Mapped[str | None] = mapped_column(
+        ForeignKey("sets.code"),
+        nullable=True,
+        index=True,
+    )
+    scryfall_set: Mapped[ScryfallSet | None] = relationship(back_populates="hareruya_sets")
 
     release_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     tier: Mapped[Tier] = mapped_column(Enum(Tier), default=Tier.cold, index=True)
-
-    # bookkeeping
     last_crawled_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<Set {self.hareruya_product_code} ({self.hareruya_cardset_id})>"
+        return f"<HareruyaSet {self.hareruya_product_code} ({self.hareruya_cardset_id})>"
+
+
+# Backwards-compatible alias for existing code that still imports Set.
+Set = HareruyaSet
 
 
 class Printing(Base):

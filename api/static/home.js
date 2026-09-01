@@ -7,6 +7,7 @@ const errorEl = document.getElementById('error');
 const setCodeInput = document.getElementById('set-code');
 const collectorNumberInput = document.getElementById('collector-number');
 const languageButtons = document.querySelectorAll('.lang-btn');
+const recentSetsList = document.getElementById('recent-sets');
 
 const I18N = window.I18N || {};
 let activeLanguage = 'en';
@@ -63,6 +64,63 @@ async function loadSetCodes() {
   }
 }
 
+function renderRecentSets(sets) {
+  if (!recentSetsList) return;
+  recentSetsList.innerHTML = '';
+
+  if (!Array.isArray(sets) || sets.length === 0) {
+    const emptyItem = document.createElement('li');
+    emptyItem.className = 'recent-set-item';
+    emptyItem.textContent = activeLanguage === 'ja' ? 'セットが見つかりませんでした。' : 'No sets available.';
+    recentSetsList.appendChild(emptyItem);
+    return;
+  }
+
+  for (const set of sets) {
+    const item = document.createElement('li');
+    const link = document.createElement('a');
+    link.className = 'recent-set-item';
+    link.href = `/search?set=${encodeURIComponent(set.code)}&lang=${activeLanguage}`;
+
+    const code = document.createElement('span');
+    code.className = 'recent-set-code';
+    code.textContent = set.code.toUpperCase();
+
+    const name = document.createElement('span');
+    name.className = 'recent-set-name';
+    name.textContent = set.name || set.code.toUpperCase();
+
+    const date = document.createElement('span');
+    date.className = 'recent-set-date';
+    if (set.release_date) {
+      const formatted = new Date(`${set.release_date}T00:00:00`).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      date.textContent = formatted;
+    } else {
+      date.textContent = activeLanguage === 'ja' ? 'リリース日不明' : 'Date unknown';
+    }
+
+    link.appendChild(code);
+    link.appendChild(name);
+    link.appendChild(date);
+    item.appendChild(link);
+    recentSetsList.appendChild(item);
+  }
+}
+
+async function loadRecentSets() {
+  try {
+    const resp = await fetch('/api/recent_sets?limit=8');
+    const body = await resp.json().catch(() => ({ sets: [] }));
+    renderRecentSets(body.sets || []);
+  } catch (err) {
+    console.error('Failed to load recent sets', err);
+  }
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
 
@@ -104,3 +162,4 @@ function restoreLanguage() {
 restoreLanguage();
 applyUiTranslations();
 loadSetCodes();
+loadRecentSets();

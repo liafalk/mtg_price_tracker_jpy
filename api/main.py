@@ -25,7 +25,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from db import SessionLocal
-from models import Price, Printing, Set
+from models import HareruyaSet, Price, Printing, Set
 from scraper.parse import normalize_collector_number
 
 app = FastAPI(title="JPY MTG Prices")
@@ -80,6 +80,29 @@ def list_set_codes() -> dict[str, list[str]]:
             .order_by(Printing.set_code.asc())
         ).scalars().all()
     return {"sets": [code.lower() for code in set_codes if code]}
+
+
+@app.get("/api/recent_sets")
+def recent_sets(limit: int = Query(8, ge=1, le=20)) -> dict[str, list[dict[str, Any]]]:
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(Set)
+            .where(Set.set_code.is_not(None))
+            .order_by(Set.release_date.desc().nullslast(), Set.name_jp.asc())
+            .limit(limit)
+        ).scalars().all()
+
+    return {
+        "sets": [
+            {
+                "code": (row.set_code or row.hareruya_product_code or "").lower(),
+                "name": row.name_jp or row.hareruya_product_code or "Unknown set",
+                "release_date": row.release_date.isoformat() if row.release_date else None,
+            }
+            for row in rows
+            if (row.set_code or row.hareruya_product_code)
+        ]
+    }
 
 
 @app.get("/api/search")

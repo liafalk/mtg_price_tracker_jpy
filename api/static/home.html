@@ -17,20 +17,29 @@
     </div>
   </div>
 
-  <form id="search-form" style="margin-bottom:0.75rem;">
-    <input id="search-term" placeholder="Search card name" autocomplete="off" style="width: 18rem;">
-    <button id="search-btn" type="submit">Search</button>
-  </form>
+  <div class="layout-shell">
+    <main class="main-column">
+      <form id="search-form" style="margin-bottom:0.75rem;">
+        <input id="search-term" placeholder="Search card name" autocomplete="off" style="width: 18rem;">
+        <button id="search-btn" type="submit">Search</button>
+      </form>
 
-  <form id="lookup-form">
-    <select id="set-code" required>
-      <option value="">Select set code</option>
-    </select>
-    <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
-    <button id="submit-btn" type="submit">Look up</button>
-  </form>
+      <form id="lookup-form">
+        <select id="set-code" required>
+          <option value="">Select set code</option>
+        </select>
+        <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
+        <button id="submit-btn" type="submit">Look up</button>
+      </form>
 
-  <div id="error"></div>
+      <div id="error"></div>
+    </main>
+
+    <aside class="sidebar-panel" aria-labelledby="recent-sets-title">
+      <h2 id="recent-sets-title">Recent sets</h2>
+      <ul id="recent-sets" class="recent-set-list"></ul>
+    </aside>
+  </div>
 
 <script src="/static/home.js"></script>
 </body>
