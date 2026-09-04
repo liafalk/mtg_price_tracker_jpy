@@ -1,30 +1,39 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 /path/to/backup.sql.gz"
-  exit 1
+if [ "${BACKUP_CONTAINER:-0}" = "1" ]; then
+  if [ "$#" -ne 1 ]; then
+    echo "Usage: restore_db.sh /backups/database-TIMESTAMP.dump" >&2
+    exit 1
+  fi
+  pg_restore --clean --if-exists --no-owner --exit-on-error --jobs="${RESTORE_JOBS:-4}" "$1"
+  echo "Restore completed from $1"
+  exit 0
 fi
 
-BACKUP_FILE="$1"
-if [ ! -f "${BACKUP_FILE}" ]; then
-  echo "Backup file not found: ${BACKUP_FILE}"
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 /path/to/backup.dump" >&2
   exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${PROJECT_ROOT}"
-
-if [ -f ".env" ]; then
+if [ -f "${PROJECT_ROOT}/.env" ]; then
   set -a
-  . ./.env
+  . "${PROJECT_ROOT}/.env"
   set +a
 fi
 
-POSTGRES_USER="${POSTGRES_USER:-jpy_mtg}"
-POSTGRES_DB="${POSTGRES_DB:-jpy_mtg_prices}"
+BACKUP_FILE="$(realpath "$1")"
+BACKUP_DIR="$(dirname "${BACKUP_FILE}")"
+BACKUP_NAME="$(basename "${BACKUP_FILE}")"
 
-gzip -dc "${BACKUP_FILE}" | docker compose exec -T db psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"
+if [ ! -f "${BACKUP_FILE}" ]; then
+  echo "Backup file not found: ${BACKUP_FILE}" >&2
+  exit 1
+fi
 
-echo "Restore completed from ${BACKUP_FILE}"
+cd "${PROJECT_ROOT}"
+export BACKUP_DIR
+docker compose --profile backup run --rm \
+  -e BACKUP_CONTAINER=1 backup /usr/local/bin/restore_db.sh "/backups/${BACKUP_NAME}"

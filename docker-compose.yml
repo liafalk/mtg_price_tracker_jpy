@@ -19,6 +19,23 @@ services:
       timeout: 5s
       retries: 10
 
+  backup:
+    image: postgres:16-alpine
+    profiles: [backup]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: jpy_mtg
+      PGPASSWORD: jpy_mtg
+      PGDATABASE: jpy_mtg_prices
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ./scripts/backup_db.sh:/usr/local/bin/backup_db.sh:ro
+      - ./scripts/restore_db.sh:/usr/local/bin/restore_db.sh:ro
+
   # Adminer gives you a quick web UI to poke at the DB without installing
   # a client locally. Optional -- comment out if you don't want it.
   adminer:

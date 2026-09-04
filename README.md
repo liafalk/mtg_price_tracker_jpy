@@ -219,8 +219,9 @@ For a real server, run Postgres in Docker and back it up outside the container. 
 ### Recommended backup flow
 
 - Keep the live DB in the `db_data` volume
-- Run `scripts/backup_db.sh` on a schedule
-- Store backups on the host at `/var/backups/jpy-mtg`
+- Run `scripts/backup_db.sh` on a schedule; it uses a dedicated PostgreSQL
+  backup container and produces compressed custom-format archives
+- Store backups on the host at `/var/backups/jpy-mtg` by setting `BACKUP_DIR`
 - Keep the last 14 days of compressed dumps
 
 Example:
@@ -230,19 +231,19 @@ chmod +x scripts/backup_db.sh scripts/restore_db.sh
 cp .env.example .env
 sudo mkdir -p /var/backups/jpy-mtg
 sudo chown $USER /var/backups/jpy-mtg
-./scripts/backup_db.sh
+BACKUP_DIR=/var/backups/jpy-mtg ./scripts/backup_db.sh
 ```
 
 Then add a cron entry:
 
 ```cron
-0 */6 * * * /path/to/hareruya_scraper/scripts/backup_db.sh >> /var/log/jpy-mtg-backup.log 2>&1
+0 */6 * * * BACKUP_DIR=/var/backups/jpy-mtg /path/to/hareruya_scraper/scripts/backup_db.sh >> /var/log/jpy-mtg-backup.log 2>&1
 ```
 
 ### Restore
 
 ```bash
-./scripts/restore_db.sh /var/backups/jpy-mtg/jpy_mtg_prices-20260830T020000Z.sql.gz
+BACKUP_DIR=/var/backups/jpy-mtg ./scripts/restore_db.sh /var/backups/jpy-mtg/jpy_mtg_prices-20260830T020000Z.dump
 ```
 
 ### Production environment
@@ -366,9 +367,30 @@ python -m scraper.daily_run
 
 ## Data model
 
-- **`sets`** — one row per Hareruya `cardset`. Carries the Japanese
-  name, release date, assigned tier, and the matching Scryfall set
-  code (resolved by `sync_scryfall.resolve_scryfall_set_codes`).
+### Migrate an existing database
+
+After updating from the commit that stored Hareruya cardsets directly in
+`sets`, run the one-time migration below. It is transactional and safe to
+rerun; it preserves `printings` and `prices`.
+
+```bash
+python -m scripts.migrate_legacy_schema
+```
+
+With Docker Compose:
+
+```bash
+docker compose run --rm app python -m scripts.migrate_legacy_schema
+```
+
+Rows without a resolved `set_code` remain in `sets_hareruya` with a null
+`scryfall_set_code`; run the normal Scryfall synchronization after adding any
+needed entries to `config/set_code_overrides.toml`.
+
+- **`sets`** — canonical Scryfall set metadata, keyed by Scryfall code.
+- **`sets_hareruya`** — one row per Hareruya `cardset`. Carries the Japanese
+  name, release date, assigned tier, and the matching Scryfall set code
+  (resolved by `sync_scryfall.resolve_scryfall_set_codes`).
 - **`printings`** — one row per `(set, collector_number)`, created
   *only* from Scryfall's bulk data. Carries `scryfall_id`, name,
   rarity — the identity fields Hareruya's crawler matches against but
