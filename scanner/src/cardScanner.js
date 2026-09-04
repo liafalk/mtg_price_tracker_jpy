@@ -9,7 +9,7 @@
  */
 
 import { captureFrameToCanvas, loadFileToCanvas } from './camera.js';
-import { cropByRatio, getImageData } from './imageProcessing.js';
+import { cropByRatio, detectCardAndRectify, getImageData } from './imageProcessing.js';
 import { computeFoilSignals, detectFoil, DEFAULT_FOIL_THRESHOLDS } from './foilDetection.js';
 import { createOcrEngine, scanWithFallback, DEFAULT_CROP_REGIONS } from './ocr.js';
 
@@ -32,6 +32,9 @@ export class CardScanner {
    *   differently than DEFAULT_CARD_REGION assumes.
    * @param {typeof DEFAULT_FOIL_THRESHOLDS} [options.foilThresholds]
    * @param {Array} [options.ocrCropRegions] See DEFAULT_CROP_REGIONS in ocr.js.
+  * @param {boolean} [options.autoDetectCard=false] Use OpenCV.js to find and
+  *   perspective-correct the card before processing.
+  * @param {object} [options.cvInstance] OpenCV.js runtime.
    */
   constructor({
     tesseractModule,
@@ -39,12 +42,16 @@ export class CardScanner {
     cardRegion = DEFAULT_CARD_REGION,
     foilThresholds = DEFAULT_FOIL_THRESHOLDS,
     ocrCropRegions = DEFAULT_CROP_REGIONS,
+    autoDetectCard = false,
+    cvInstance = globalThis.cv,
   } = {}) {
     this._tesseractModule = tesseractModule;
     this._lang = lang;
     this.cardRegion = cardRegion;
     this.foilThresholds = foilThresholds;
     this.ocrCropRegions = ocrCropRegions;
+    this.autoDetectCard = autoDetectCard;
+    this.cvInstance = cvInstance;
     this._ocrEngine = null;
   }
 
@@ -70,24 +77,50 @@ export class CardScanner {
    *   collectorNumber: string|null, rarity: string|null, language: string|null,
    *   isFoil: boolean, foilVotes: number, foilSignals: object,
    *   ocrConfidence: number, ocrStrategy: string, ocrScore: number,
-   *   rawText: string, cardCanvas: HTMLCanvasElement, timingMs: number
+    *   rawText: string, cardCanvas: HTMLCanvasElement,
+    *   ocrCanvas: HTMLCanvasElement|null, timingMs: number
    * }>}
    */
-  async scanCanvas(sourceCanvas) {
+  async scanCanvas(sourceCanvas, { skipAutomaticDetection = false } = {}) {
     const startedAt = performance.now();
 
-    const cardCanvas = cropByRatio(sourceCanvas, this.cardRegion);
+    const detectedCardCanvas = this.autoDetectCard && !skipAutomaticDetection
+      ? detectCardAndRectify(sourceCanvas, this.cvInstance)
+      : null;
+      let cardCanvas = detectedCardCanvas
+        || (skipAutomaticDetection ? sourceCanvas : cropByRatio(sourceCanvas, this.cardRegion));
+    let cardDetection = detectedCardCanvas ? 'automatic' : 'fallback';
 
     // Foil signals computed over the whole card face, not just the
     // number strip -- foil sheen is easier to pick up over a larger area.
-    const foilSignals = computeFoilSignals(getImageData(cardCanvas));
-    const foilResult = detectFoil(foilSignals, this.foilThresholds);
+    let foilSignals = computeFoilSignals(getImageData(cardCanvas));
+    let foilResult = detectFoil(foilSignals, this.foilThresholds);
 
     const ocrEngine = await this._ensureOcrEngine();
-    const ocrResult = await scanWithFallback(cardCanvas, ocrEngine, {
+    let ocrResult = await scanWithFallback(cardCanvas, ocrEngine, {
       regions: this.ocrCropRegions,
       isFoil: foilResult.isFoil,
     });
+
+    // A partial rotated rectangle can look card-shaped while still producing
+    // unusable OCR. Prefer the configured crop when automatic OCR is weak.
+    if (detectedCardCanvas && ocrResult.score < 60) {
+      const fallbackCanvas = cropByRatio(sourceCanvas, this.cardRegion);
+      const fallbackSignals = computeFoilSignals(getImageData(fallbackCanvas));
+      const fallbackFoil = detectFoil(fallbackSignals, this.foilThresholds);
+      const fallbackOcr = await scanWithFallback(fallbackCanvas, ocrEngine, {
+        regions: this.ocrCropRegions,
+        isFoil: fallbackFoil.isFoil,
+      });
+
+      if (fallbackOcr.score >= ocrResult.score) {
+        cardCanvas = fallbackCanvas;
+        cardDetection = 'fallback';
+        foilSignals = fallbackSignals;
+        foilResult = fallbackFoil;
+        ocrResult = fallbackOcr;
+      }
+    }
 
     return {
       collectorNumber: ocrResult.collectorNumber,
@@ -101,6 +134,9 @@ export class CardScanner {
       ocrScore: ocrResult.score,
       rawText: ocrResult.raw,
       cardCanvas,
+      cardDetection,
+      ocrSourceCanvas: ocrResult.sourceCanvas,
+      ocrCanvas: ocrResult.preprocessedCanvas,
       timingMs: performance.now() - startedAt,
     };
   }

@@ -6,6 +6,23 @@
 <title>Card Scanner — Demo / Calibration</title>
 <!-- Tesseract.js via CDN. Swap for an npm import + bundler in your real app if you prefer. -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+  window.handleOpenCvLoaded = function () {
+    const cv = window.cv;
+    if (cv?.Mat) {
+      window.dispatchEvent(new Event('opencv-ready'));
+      return;
+    }
+    if (cv) {
+      cv.onRuntimeInitialized = () => {
+        window.dispatchEvent(new Event('opencv-ready'));
+      };
+    }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.js"
+        onload="window.handleOpenCvLoaded()"
+        onerror="window.dispatchEvent(new Event('opencv-error'))"></script>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1f2937; }
   h1 { font-size: 1.3rem; }
@@ -30,6 +47,10 @@
   #status { color: #6b7280; font-size: 0.9rem; margin: 0.5rem 0; }
   #crops { display: flex; gap: 1rem; flex-wrap: wrap; }
   #crops canvas { border: 1px solid #ddd; }
+  #corner-picker { display: none; margin-top: 1rem; }
+  #corner-canvas { width: 100%; max-width: 700px; cursor: crosshair; border: 1px solid #9ca3af; }
+  #corner-values { width: 100%; max-width: 700px; min-height: 4rem; font-family: monospace; }
+  #training-label { width: 100%; max-width: 700px; min-height: 3rem; font-family: monospace; }
 </style>
 </head>
 <body>
@@ -56,6 +77,21 @@
     <div>
       <p class="hint">Or test with a photo instead of a live camera:</p>
       <input type="file" id="file-input" accept="image/*">
+      <label class="hint" style="display:block; margin-top:0.6rem;">
+        <input type="checkbox" id="use-pongify-corners">
+        Use hardcoded Pongify corners
+      </label>
+      <div id="corner-picker">
+        <p class="hint">Click four card corners clockwise, starting at the top-left:</p>
+        <canvas id="corner-canvas"></canvas>
+        <p class="hint">Pixel coordinates:</p>
+        <textarea id="corner-values" readonly></textarea>
+        <p class="hint">YOLO segmentation label for the matching `.txt` file:</p>
+        <textarea id="training-label" readonly></textarea>
+        <button type="button" id="download-label-btn" disabled>Save .txt label</button>
+        <button type="button" id="reset-corners-btn">Reset corners</button>
+        <button type="button" id="run-corners-btn" disabled>Run crop with these corners</button>
+      </div>
     </div>
   </div>
 
@@ -70,6 +106,7 @@
       <tr><th>Foil?</th><td id="r-foil"></td></tr>
       <tr><th>OCR confidence</th><td id="r-confidence"></td></tr>
       <tr><th>OCR crop strategy used</th><td id="r-strategy"></td></tr>
+      <tr><th>Card crop</th><td id="r-card-detection"></td></tr>
       <tr><th>Raw OCR text</th><td id="r-raw"></td></tr>
       <tr><th>Time taken</th><td id="r-timing"></td></tr>
     </table>
@@ -93,18 +130,47 @@
 <script type="module">
   import { startCamera, captureFrameToCanvas, loadFileToCanvas } from './src/camera.js';
   import { CardScanner } from './src/cardScanner.js';
+  import { rectifyCardFromCorners } from './src/imageProcessing.js';
   import { DEFAULT_FOIL_THRESHOLDS } from './src/foilDetection.js';
 
   const videoEl = document.getElementById('video');
   const startCameraBtn = document.getElementById('start-camera-btn');
   const captureBtn = document.getElementById('capture-btn');
   const fileInput = document.getElementById('file-input');
+  const usePongifyCorners = document.getElementById('use-pongify-corners');
+  const cornerPicker = document.getElementById('corner-picker');
+  const cornerCanvas = document.getElementById('corner-canvas');
+  const cornerValues = document.getElementById('corner-values');
+  const trainingLabel = document.getElementById('training-label');
+  const downloadLabelBtn = document.getElementById('download-label-btn');
+  const resetCornersBtn = document.getElementById('reset-corners-btn');
+  const runCornersBtn = document.getElementById('run-corners-btn');
   const statusEl = document.getElementById('status');
   const resultsEl = document.getElementById('results');
   const cropsEl = document.getElementById('crops');
 
-  const scanner = new CardScanner(); // uses window.Tesseract from the CDN script above
+  const scanner = new CardScanner();
+  const pongifyCorners = [[629, 708], [2437, 921], [2676, 3530], [537, 3806]];
+  let pickerImage = null;
+  let pickedCorners = [];
   let stream = null;
+
+  function enableAutomaticDetection() {
+    if (!globalThis.cv?.Mat) return;
+    scanner.autoDetectCard = true;
+    scanner.cvInstance = globalThis.cv;
+    setStatus('Automatic card detection ready.');
+  }
+
+  if (globalThis.cv?.Mat) {
+    enableAutomaticDetection();
+  } else {
+    setStatus('Loading automatic card detection. Manual crop fallback is ready.');
+    window.addEventListener('opencv-ready', enableAutomaticDetection, { once: true });
+    window.addEventListener('opencv-error', () => {
+      setStatus('Automatic card detection unavailable. Using manual crop fallback.');
+    }, { once: true });
+  }
 
   document.getElementById('f-luminance-t').textContent = DEFAULT_FOIL_THRESHOLDS.luminanceStdDev;
   document.getElementById('f-saturation-t').textContent = DEFAULT_FOIL_THRESHOLDS.saturationVariance;
@@ -129,16 +195,116 @@
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file) return;
-    const canvas = await loadFileToCanvas(file);
-    await runScan(canvas);
+    await scanSelectedFile(file);
   });
 
-  async function runScan(sourceCanvas) {
+  usePongifyCorners.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    await scanSelectedFile(file);
+  });
+
+  async function scanSelectedFile(file) {
+    const canvas = await loadFileToCanvas(file);
+    showCornerPicker(canvas);
+    const isPongify = usePongifyCorners.checked
+      && file.name.toLowerCase().startsWith('pongify');
+    const normalizedCanvas = isPongify
+      ? rectifyCardFromCorners(canvas, pongifyCorners)
+      : null;
+    await runScan(normalizedCanvas || canvas, {
+      hardcodedCorners: Boolean(normalizedCanvas),
+    });
+  }
+
+  function showCornerPicker(sourceCanvas) {
+    pickerImage = sourceCanvas;
+    pickedCorners = [];
+    runCornersBtn.disabled = true;
+    cornerPicker.style.display = 'block';
+    const displayScale = Math.min(1, 700 / sourceCanvas.width);
+    cornerCanvas.width = Math.round(sourceCanvas.width * displayScale);
+    cornerCanvas.height = Math.round(sourceCanvas.height * displayScale);
+    drawCornerPicker(displayScale);
+  }
+
+  function drawCornerPicker(displayScale) {
+    const context = cornerCanvas.getContext('2d');
+    context.clearRect(0, 0, cornerCanvas.width, cornerCanvas.height);
+    context.drawImage(pickerImage, 0, 0, cornerCanvas.width, cornerCanvas.height);
+    context.font = 'bold 16px sans-serif';
+    pickedCorners.forEach(([x, y], index) => {
+      const displayX = x * displayScale;
+      const displayY = y * displayScale;
+      context.fillStyle = '#ef4444';
+      context.beginPath();
+      context.arc(displayX, displayY, 6, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#ffffff';
+      context.fillText(String(index + 1), displayX + 8, displayY - 8);
+    });
+    cornerValues.value = pickedCorners.length
+      ? `const corners = ${JSON.stringify(pickedCorners)};`
+      : 'const corners = [];';
+    const normalizedCorners = pickedCorners.map(([x, y]) => [
+      Number((x / pickerImage.width).toFixed(6)),
+      Number((y / pickerImage.height).toFixed(6)),
+    ]);
+    trainingLabel.value = normalizedCorners.length === 4
+      ? `0 ${normalizedCorners.flat().join(' ')}`
+      : 'YOLO label: click all four corners';
+    downloadLabelBtn.disabled = normalizedCorners.length !== 4;
+    runCornersBtn.disabled = pickedCorners.length !== 4;
+  }
+
+  cornerCanvas.addEventListener('click', (event) => {
+    if (!pickerImage || pickedCorners.length >= 4) return;
+    const bounds = cornerCanvas.getBoundingClientRect();
+    const scaleX = cornerCanvas.width / bounds.width;
+    const scaleY = cornerCanvas.height / bounds.height;
+    const displayScale = cornerCanvas.width / pickerImage.width;
+    const x = Math.round((event.clientX - bounds.left) * scaleX / displayScale);
+    const y = Math.round((event.clientY - bounds.top) * scaleY / displayScale);
+    pickedCorners.push([x, y]);
+    drawCornerPicker(displayScale);
+  });
+
+  runCornersBtn.addEventListener('click', async () => {
+    if (!pickerImage || pickedCorners.length !== 4) return;
+    const normalizedCanvas = rectifyCardFromCorners(pickerImage, pickedCorners);
+    if (normalizedCanvas) {
+      await runScan(normalizedCanvas, { hardcodedCorners: true });
+    }
+  });
+
+  downloadLabelBtn.addEventListener('click', () => {
+    if (!pickerImage || pickedCorners.length !== 4) return;
+    const sourceName = fileInput.files[0]?.name || 'card image';
+    const baseName = sourceName.replace(/\.[^.]+$/, '');
+    const blob = new Blob([`${trainingLabel.value}\n`], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${baseName}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  resetCornersBtn.addEventListener('click', () => {
+    if (!pickerImage) return;
+    pickedCorners = [];
+    drawCornerPicker(cornerCanvas.width / pickerImage.width);
+  });
+
+  async function runScan(sourceCanvas, { hardcodedCorners = false } = {}) {
     setStatus('Scanning... (first run loads the OCR language model, can take a few seconds)');
     captureBtn.disabled = true;
 
     try {
-      const result = await scanner.scanCanvas(sourceCanvas);
+      const result = await scanner.scanCanvas(sourceCanvas, {
+        skipAutomaticDetection: hardcodedCorners,
+      });
+      if (hardcodedCorners) result.cardDetection = 'hardcoded';
       renderResult(result);
       setStatus('Done.');
     } catch (err) {
@@ -161,6 +327,7 @@
 
     document.getElementById('r-confidence').textContent = `${result.ocrConfidence.toFixed(1)}%`;
     document.getElementById('r-strategy').textContent = result.ocrStrategy;
+    document.getElementById('r-card-detection').textContent = result.cardDetection;
     document.getElementById('r-raw').textContent = JSON.stringify(result.rawText);
     document.getElementById('r-timing').textContent = `${result.timingMs.toFixed(0)} ms`;
 
@@ -170,9 +337,27 @@
 
     cropsEl.innerHTML = '';
     const label = document.createElement('div');
-    label.innerHTML = '<p class="hint">Card region used for foil signals + OCR crop base:</p>';
+    const cropLabel = result.cardDetection === 'automatic'
+      ? 'Normalized card after perspective correction:'
+      : result.cardDetection === 'hardcoded'
+        ? 'Hardcoded normalized card after perspective correction:'
+        : 'Fallback card crop (automatic detection unavailable):';
+    label.innerHTML = `<p class="hint">${cropLabel}</p>`;
     label.appendChild(result.cardCanvas);
     cropsEl.appendChild(label);
+
+    if (result.ocrCanvas) {
+      if (result.ocrSourceCanvas) {
+        const sourceLabel = document.createElement('div');
+        sourceLabel.innerHTML = '<p class="hint">Original OCR crop (before preprocessing):</p>';
+        sourceLabel.appendChild(result.ocrSourceCanvas);
+        cropsEl.appendChild(sourceLabel);
+      }
+      const ocrLabel = document.createElement('div');
+      ocrLabel.innerHTML = '<p class="hint">Processed image sent to OCR (gamma 1.5 + contrast):</p>';
+      ocrLabel.appendChild(result.ocrCanvas);
+      cropsEl.appendChild(ocrLabel);
+    }
   }
 
   function setStatus(text) {

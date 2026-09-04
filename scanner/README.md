@@ -33,6 +33,8 @@ production. See "Calibration" below.
     picks up automatically
   - npm: `npm install tesseract.js`, then pass the imported module as
     `createOcrEngine({ tesseractModule })` / `new CardScanner({ tesseractModule })`
+- OpenCV.js — loaded from jsDelivr by `demo.html` for automatic card
+  edge detection and perspective correction
 
 No other dependencies. No bundler is required, but native ES modules must be
 served over HTTP rather than opened with `file://`. Bundle it into your
@@ -46,11 +48,22 @@ From the repository root, serve the scanner folder locally:
 python -m http.server 8080 --directory scanner
 ```
 
-Then open <http://localhost:8080/demo.html>. This is required because module
-imports such as `./src/camera.js` are blocked by browsers when the page is
+Then open <http://localhost:8080/demo.html>. The demo loads OpenCV.js and uses
+it to detect and straighten the card automatically. This is required because
+module imports such as `./src/camera.js` are blocked by browsers when the page is
 opened from `file://`. Camera access also requires `localhost` or HTTPS. It's
 a self-contained test page: start the camera or upload a photo, scan, and see the
 parsed collector number, foil verdict, and raw signal numbers.
+
+### Pick corners manually
+
+The demo includes a corner picker for difficult images. Select a photo, click
+the card corners clockwise starting at the top-left, and copy the generated
+`const corners = [...]` value. Coordinates are reported in the original image's
+pixel dimensions, even when the preview is displayed at a smaller size.
+Copy the generated YOLO label line into a `.txt` file with the same base name
+as the image, under the matching `labels/train`, `labels/val`, or `labels/test`
+directory.
 
 ## Usage
 
@@ -73,7 +86,8 @@ console.log(result);
 //   collectorNumber: '119', rarity: 'R', language: 'EN',
 //   isFoil: false, foilVotes: 1, foilSignals: {...},
 //   ocrConfidence: 87.3, ocrStrategy: 'standard', ocrScore: 92.5,
-//   rawText: '0119 R EN', cardCanvas: <canvas>, timingMs: 1840,
+//   rawText: '0119 R EN', cardCanvas: <canvas>, ocrCanvas: <canvas>,
+//   timingMs: 1840,
 // }
 
 // Release the OCR worker when you're done with the scanner (e.g. on
@@ -93,16 +107,19 @@ Each field of `result`:
 | `foilSignals` | The raw numbers behind the verdict |
 | `ocrConfidence` | Tesseract's own 0-100 confidence for the winning crop |
 | `ocrStrategy` | Which crop region in `DEFAULT_CROP_REGIONS` won |
+| `cardDetection` | `automatic` when OpenCV found and rectified a card, `hardcoded` for an explicit corner override, otherwise `fallback` |
+| `ocrCanvas` | The processed crop sent to Tesseract, including grayscale, contrast, optional binarization, and upscaling |
+| `ocrSourceCanvas` | The original winning OCR crop before preprocessing |
 | `ocrScore` | This module's own scoring (see `ocr.js`), not Tesseract's |
 | `rawText` | Unparsed OCR output, for debugging |
-| `cardCanvas` | The card-region crop actually used — handy to display for user confirmation |
+| `cardCanvas` | The normalized, perspective-corrected card used for processing when `cardDetection` is `automatic`; otherwise the fixed fallback crop |
 
 If you'd rather compose the pieces yourself instead of using
 `CardScanner`, every module is independently importable:
 
 ```js
 import { startCamera, captureFrameToCanvas } from './src/camera.js';
-import { cropByRatio, toGrayscaleInPlace } from './src/imageProcessing.js';
+import { cropByRatio, toGrayscaleInPlace, adjustGammaInPlace } from './src/imageProcessing.js';
 import { computeFoilSignals, detectFoil } from './src/foilDetection.js';
 import { createOcrEngine, scanWithFallback, parseCollectorInfo } from './src/ocr.js';
 ```
@@ -185,10 +202,10 @@ placement differs (older frames, some special sets).
   frames, oversized/oddly-numbered promos, or cards where the
   collector-number strip sits somewhere unusual will need their own
   region(s) added.
-- **No card-detection/auto-crop.** `cardRegion` in `CardScanner` is a
-  fixed ratio, not a real edge-detection step — it assumes your
-  capture UI already guides the user to fill the frame with the card
-  (e.g. an on-screen overlay, like the dashed guide in `demo.html`).
+- **Automatic detection fallback.** `cardRegion` in `CardScanner` remains a
+  fixed-ratio fallback. Set `autoDetectCard: true` and provide an OpenCV.js
+  runtime through `cvInstance` to detect a card quadrilateral and perspective-
+  correct it automatically.
 - **Language-code and rarity parsing is regex-based**, not
   cross-checked against Scryfall — false positives are possible on
   noisy OCR output (e.g. misreading a stray character as a rarity

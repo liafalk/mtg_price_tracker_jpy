@@ -1,1 +1,5 @@
 __pycache__
+.venv-card-detector/
+scanner/ml/runs/
+scanner/ml/*.onnx
+scanner/ml/*.pt

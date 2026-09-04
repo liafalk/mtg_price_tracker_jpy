@@ -14,7 +14,7 @@
  * Not bundled here so you can pick whichever fits your build setup.
  */
 
-import { cropByRatio, toGrayscaleInPlace, stretchContrastInPlace, binarizeInPlace, upscale } from './imageProcessing.js';
+import { cropByRatio, toGrayscaleInPlace, adjustGammaInPlace, stretchContrastInPlace, binarizeInPlace, upscale } from './imageProcessing.js';
 
 // Collector-number strip is reliably in the bottom-left ~40% width,
 // bottom ~12% height of the card face on modern frames, but shifts a
@@ -92,8 +92,10 @@ export async function createOcrEngine({ tesseractModule, lang = 'eng' } = {}) {
 export function parseCollectorInfo(rawText) {
   const cleaned = rawText.replace(/\s+/g, ' ').trim();
 
-  // Leading digits, optionally zero-padded, optionally "/nnn" total-count suffix.
-  const numberMatch = cleaned.match(/(\d{1,4})(?:\s*\/\s*\d{1,4})?/);
+  // Prefer the fraction form when present because OCR often emits a stray
+  // digit before the actual collector number (e.g. "4 248/303 R").
+  const fractionMatch = cleaned.match(/\b(\d{1,4})\s*\/\s*\d{1,4}\b/);
+  const numberMatch = fractionMatch || cleaned.match(/(\d{1,4})/);
   const collectorNumber = numberMatch ? String(parseInt(numberMatch[1], 10)) : null;
 
   // A single rarity letter (C/U/R/M/S), typically standalone after the number.
@@ -132,6 +134,7 @@ export function scoreResult(parsed, ocrConfidence) {
 function preprocessForOcr(canvas, { isFoil = false } = {}) {
   const upscaled = upscale(canvas, 3);
   toGrayscaleInPlace(upscaled);
+  adjustGammaInPlace(upscaled, 1.5);
 
   if (isFoil) {
     // Foil's uneven reflectivity tends to blow out a plain contrast
@@ -173,16 +176,34 @@ export async function scanWithFallback(cardCanvas, ocrEngine, {
   earlyStopScore = 80,
   isFoil = false,
 } = {}) {
-  let best = { collectorNumber: null, rarity: null, language: null, raw: '', score: 0, strategy: 'none', confidence: 0 };
+  let best = {
+    collectorNumber: null,
+    rarity: null,
+    language: null,
+    raw: '',
+    score: 0,
+    strategy: 'none',
+    confidence: 0,
+    sourceCanvas: null,
+    preprocessedCanvas: null,
+  };
 
   for (const region of regions) {
-    const preprocessed = preprocessForOcr(cropByRatio(cardCanvas, region), { isFoil });
+    const source = cropByRatio(cardCanvas, region);
+    const preprocessed = preprocessForOcr(source, { isFoil });
     const { text, confidence } = await ocrEngine.recognize(preprocessed);
     const parsed = parseCollectorInfo(text);
     const score = scoreResult(parsed, confidence);
 
     if (score > best.score) {
-      best = { ...parsed, score, strategy: region.name, confidence };
+      best = {
+        ...parsed,
+        score,
+        strategy: region.name,
+        confidence,
+        sourceCanvas: source,
+        preprocessedCanvas: preprocessed,
+      };
     }
     if (best.score >= earlyStopScore) break;
   }
