@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Scanner — Demo / Calibration</title>
+<!-- Tesseract.js via CDN. Swap for an npm import + bundler in your real app if you prefer. -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1f2937; }
+  h1 { font-size: 1.3rem; }
+  .hint { color: #6b7280; font-size: 0.85rem; }
+  .row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1rem 0; }
+  video, canvas { max-width: 100%; border-radius: 8px; background: #111; }
+  #video-wrap { position: relative; width: 360px; }
+  #frame-guide {
+    position: absolute; inset: 5% 5%;
+    border: 2px dashed rgba(255,255,255,0.7);
+    border-radius: 8px; pointer-events: none;
+  }
+  button { padding: 0.5rem 1rem; font-size: 0.95rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #9ca3af; cursor: default; }
+  #results { margin-top: 1rem; }
+  table { border-collapse: collapse; }
+  td, th { padding: 0.3rem 0.7rem; text-align: left; font-size: 0.92rem; border-bottom: 1px solid #eee; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+  .badge.foil { background: #ede9fe; color: #6d28d9; }
+  .badge.normal { background: #e5e7eb; color: #374151; }
+  #status { color: #6b7280; font-size: 0.9rem; margin: 0.5rem 0; }
+  #crops { display: flex; gap: 1rem; flex-wrap: wrap; }
+  #crops canvas { border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+  <h1>Card Scanner — Demo / Calibration</h1>
+  <p class="hint">
+    Standalone test page for the scanner modules. No build step -- serve the
+    <code>scanner</code> folder over localhost before opening this page.
+    Use it to sanity-check camera/OCR behavior and to tune the foil-detection thresholds
+    (in <code>src/foilDetection.js</code>) against your own cards before wiring anything into a real app.
+  </p>
+
+  <div class="row">
+    <div>
+      <div id="video-wrap">
+        <video id="video" autoplay playsinline muted width="360"></video>
+        <div id="frame-guide"></div>
+      </div>
+      <div class="row" style="margin-top: 0.5rem;">
+        <button id="start-camera-btn">Start camera</button>
+        <button id="capture-btn" disabled>Capture &amp; scan</button>
+      </div>
+    </div>
+
+    <div>
+      <p class="hint">Or test with a photo instead of a live camera:</p>
+      <input type="file" id="file-input" accept="image/*">
+    </div>
+  </div>
+
+  <p id="status"></p>
+
+  <div id="results" style="display:none">
+    <h2>Result</h2>
+    <table>
+      <tr><th>Collector number</th><td id="r-number"></td></tr>
+      <tr><th>Rarity</th><td id="r-rarity"></td></tr>
+      <tr><th>Language</th><td id="r-language"></td></tr>
+      <tr><th>Foil?</th><td id="r-foil"></td></tr>
+      <tr><th>OCR confidence</th><td id="r-confidence"></td></tr>
+      <tr><th>OCR crop strategy used</th><td id="r-strategy"></td></tr>
+      <tr><th>Raw OCR text</th><td id="r-raw"></td></tr>
+      <tr><th>Time taken</th><td id="r-timing"></td></tr>
+    </table>
+
+    <h3>Foil signals (for calibration)</h3>
+    <table>
+      <tr><th>luminanceStdDev</th><td id="f-luminance"></td><td class="hint">threshold: <span id="f-luminance-t"></span></td></tr>
+      <tr><th>saturationVariance</th><td id="f-saturation"></td><td class="hint">threshold: <span id="f-saturation-t"></span></td></tr>
+      <tr><th>specularHotspotRatio</th><td id="f-hotspot"></td><td class="hint">threshold: <span id="f-hotspot-t"></span></td></tr>
+    </table>
+    <p class="hint">
+      Scan several known-foil and known-normal cards under your actual lighting, note these numbers,
+      and adjust <code>DEFAULT_FOIL_THRESHOLDS</code> in <code>src/foilDetection.js</code> so foil cards
+      trip &ge; <code>minVotes</code> signals and normal cards don't.
+    </p>
+
+    <h3>Crops used</h3>
+    <div id="crops"></div>
+  </div>
+
+<script type="module">
+  import { startCamera, captureFrameToCanvas, loadFileToCanvas } from './src/camera.js';
+  import { CardScanner } from './src/cardScanner.js';
+  import { DEFAULT_FOIL_THRESHOLDS } from './src/foilDetection.js';
+
+  const videoEl = document.getElementById('video');
+  const startCameraBtn = document.getElementById('start-camera-btn');
+  const captureBtn = document.getElementById('capture-btn');
+  const fileInput = document.getElementById('file-input');
+  const statusEl = document.getElementById('status');
+  const resultsEl = document.getElementById('results');
+  const cropsEl = document.getElementById('crops');
+
+  const scanner = new CardScanner(); // uses window.Tesseract from the CDN script above
+  let stream = null;
+
+  document.getElementById('f-luminance-t').textContent = DEFAULT_FOIL_THRESHOLDS.luminanceStdDev;
+  document.getElementById('f-saturation-t').textContent = DEFAULT_FOIL_THRESHOLDS.saturationVariance;
+  document.getElementById('f-hotspot-t').textContent = DEFAULT_FOIL_THRESHOLDS.specularHotspotRatio;
+
+  startCameraBtn.addEventListener('click', async () => {
+    setStatus('Requesting camera access...');
+    try {
+      stream = await startCamera(videoEl);
+      captureBtn.disabled = false;
+      setStatus('Camera ready. Align the card in the frame and capture.');
+    } catch (err) {
+      setStatus(`Camera error: ${err.message}`);
+    }
+  });
+
+  captureBtn.addEventListener('click', async () => {
+    const canvas = captureFrameToCanvas(videoEl);
+    await runScan(canvas);
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const canvas = await loadFileToCanvas(file);
+    await runScan(canvas);
+  });
+
+  async function runScan(sourceCanvas) {
+    setStatus('Scanning... (first run loads the OCR language model, can take a few seconds)');
+    captureBtn.disabled = true;
+
+    try {
+      const result = await scanner.scanCanvas(sourceCanvas);
+      renderResult(result);
+      setStatus('Done.');
+    } catch (err) {
+      setStatus(`Scan error: ${err.message}`);
+      console.error(err);
+    } finally {
+      captureBtn.disabled = false;
+    }
+  }
+
+  function renderResult(result) {
+    resultsEl.style.display = '';
+
+    document.getElementById('r-number').textContent = result.collectorNumber ?? '(not found)';
+    document.getElementById('r-rarity').textContent = result.rarity ?? '—';
+    document.getElementById('r-language').textContent = result.language ?? '—';
+
+    const foilBadge = document.getElementById('r-foil');
+    foilBadge.innerHTML = `<span class="badge ${result.isFoil ? 'foil' : 'normal'}">${result.isFoil ? 'Foil' : 'Normal'}</span> (${result.foilVotes}/3 signals)`;
+
+    document.getElementById('r-confidence').textContent = `${result.ocrConfidence.toFixed(1)}%`;
+    document.getElementById('r-strategy').textContent = result.ocrStrategy;
+    document.getElementById('r-raw').textContent = JSON.stringify(result.rawText);
+    document.getElementById('r-timing').textContent = `${result.timingMs.toFixed(0)} ms`;
+
+    document.getElementById('f-luminance').textContent = result.foilSignals.luminanceStdDev.toFixed(2);
+    document.getElementById('f-saturation').textContent = result.foilSignals.saturationVariance.toFixed(4);
+    document.getElementById('f-hotspot').textContent = result.foilSignals.specularHotspotRatio.toFixed(4);
+
+    cropsEl.innerHTML = '';
+    const label = document.createElement('div');
+    label.innerHTML = '<p class="hint">Card region used for foil signals + OCR crop base:</p>';
+    label.appendChild(result.cardCanvas);
+    cropsEl.appendChild(label);
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  window.addEventListener('beforeunload', () => scanner.destroy());
+</script>
+</body>
+</html>
