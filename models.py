@@ -83,11 +83,6 @@ class HareruyaSet(Base):
     def __repr__(self) -> str:  # pragma: no cover
         return f"<HareruyaSet {self.hareruya_product_code} ({self.hareruya_cardset_id})>"
 
-
-# Backwards-compatible alias for existing code that still imports Set.
-Set = HareruyaSet
-
-
 class Printing(Base):
     """A specific card printing: (set, collector_number)."""
 

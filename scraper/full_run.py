@@ -9,7 +9,7 @@ from sqlalchemy import select
 from db import SessionLocal
 from scraper.crawl import crawl_sets
 
-from models import Set, Tier
+from models import HareruyaSet, Tier
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     with SessionLocal() as session:
-        sets = session.execute(select(Set)).scalars().all()
+        sets = session.execute(select(HareruyaSet)).scalars().all()
 
         filtered_sets = [s for s in sets if s.set_code is not None]
 

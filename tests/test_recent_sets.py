@@ -7,7 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from api.main import app
-from models import Set
+from models import HareruyaSet
 
 
 class QueryCheckingSession:
@@ -36,7 +36,7 @@ class FakeSession:
     def execute(self, stmt):
         return FakeResult(
             [
-                Set(
+                HareruyaSet(
                     id=1,
                     hareruya_cardset_id=101,
                     hareruya_product_code="woe",
@@ -44,7 +44,7 @@ class FakeSession:
                     set_code="woe",
                     release_date=dt.date(2024, 9, 20),
                 ),
-                Set(
+                HareruyaSet(
                     id=2,
                     hareruya_cardset_id=102,
                     hareruya_product_code="mkm",
@@ -77,7 +77,7 @@ def test_recent_sets_api_returns_latest_releases():
 
 def test_recent_sets_query_uses_hareruya_set_schema():
     rows = [
-        Set(
+        HareruyaSet(
             id=1,
             hareruya_cardset_id=101,
             hareruya_product_code="woe",

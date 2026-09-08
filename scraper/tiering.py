@@ -21,7 +21,7 @@ import datetime as dt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import Set, Tier
+from models import HareruyaSet, Tier
 
 HOT_WINDOW_DAYS = 60
 WARM_WINDOW_DAYS = 365
@@ -35,7 +35,7 @@ def assign_tiers(session: Session, today: dt.date | None = None) -> None:
     before picking today's crawl list."""
     today = today or dt.date.today()
 
-    sets = session.execute(select(Set)).scalars().all()
+    sets = session.execute(select(HareruyaSet)).scalars().all()
     for s in sets:
         if s.release_date is None:
             # Unknown release date (old/miscellaneous products) -> cold.
@@ -67,19 +67,19 @@ def _rotation_bucket(set_id: int, num_buckets: int, today: dt.date) -> int:
     return (set_id + day_index) % num_buckets
 
 
-def sets_to_crawl_today(session: Session, today: dt.date | None = None) -> list[Set]:
+def sets_to_crawl_today(session: Session, today: dt.date | None = None) -> list[HareruyaSet]:
     """Returns the list of Set rows that should be crawled today."""
     today = today or dt.date.today()
 
-    hot = session.execute(select(Set).where(Set.tier == Tier.hot)).scalars().all()
+    hot = session.execute(select(HareruyaSet).where(HareruyaSet.tier == Tier.hot)).scalars().all()
 
-    warm_pool = session.execute(select(Set).where(Set.tier == Tier.warm)).scalars().all()
+    warm_pool = session.execute(select(HareruyaSet).where(HareruyaSet.tier == Tier.warm)).scalars().all()
     warm_today = [
         s for s in warm_pool
         if _rotation_bucket(s.id, WARM_ROTATION_DAYS, today) == 0
     ]
 
-    cold_pool = session.execute(select(Set).where(Set.tier == Tier.cold)).scalars().all()
+    cold_pool = session.execute(select(HareruyaSet).where(HareruyaSet.tier == Tier.cold)).scalars().all()
     cold_today = [
         s for s in cold_pool
         if _rotation_bucket(s.id, COLD_ROTATION_DAYS, today) == 0

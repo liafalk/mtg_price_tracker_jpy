@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, unquote
 import httpx
 from sqlalchemy.orm import Session
 
-from models import Set
+from models import HareruyaSet
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ def extract_set_rows(tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def upsert_sets(session: Session, rows: list[dict[str, Any]]) -> None:
     existing = {
         s.hareruya_cardset_id: s
-        for s in session.query(Set).all()
+        for s in session.query(HareruyaSet).all()
     }
 
     for row in rows:
@@ -133,7 +133,7 @@ def upsert_sets(session: Session, rows: list[dict[str, Any]]) -> None:
             if row["release_date"]:
                 existing_set.release_date = row["release_date"]
         else:
-            session.add(Set(**row))
+            session.add(HareruyaSet(**row))
 
     session.commit()
     logger.info("Synced %d sets", len(rows))

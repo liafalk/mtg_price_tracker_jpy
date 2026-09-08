@@ -25,7 +25,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from db import SessionLocal
-from models import HareruyaSet, Price, Printing, Set
+from models import HareruyaSet, Price, Printing, HareruyaSet
 from scraper.parse import normalize_collector_number
 
 app = FastAPI(title="JPY MTG Prices")
@@ -51,7 +51,7 @@ def card_resource() -> FileResponse:
     return FileResponse(STATIC_DIR / "card.html")
 
 
-def _find_printing(session: Session, set_code: str, collector_number: str) -> Printing:
+def _find_printing(session: Session, set_code: str, collector_number: str) -> Printing | None:
     set_code = set_code.strip().lower()
     collector_number = normalize_collector_number(collector_number.strip())
 
@@ -86,9 +86,9 @@ def list_set_codes() -> dict[str, list[str]]:
 def recent_sets(limit: int = Query(8, ge=1, le=20)) -> dict[str, list[dict[str, Any]]]:
     with SessionLocal() as session:
         rows = session.execute(
-            select(Set)
-            .where(Set.set_code.is_not(None))
-            .order_by(Set.release_date.desc().nullslast(), Set.name_jp.asc())
+            select(HareruyaSet)
+            .where(HareruyaSet.set_code.is_not(None))
+            .order_by(HareruyaSet.release_date.desc().nullslast(), HareruyaSet.name_jp.asc())
             .limit(limit)
         ).scalars().all()
 

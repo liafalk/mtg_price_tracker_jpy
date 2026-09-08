@@ -22,7 +22,7 @@ import logging
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from models import Language, Price, Printing, Set
+from models import Language, Price, Printing, HareruyaSet
 from scraper.hareruya_client import HareruyaClient, HareruyaFilters
 from scraper.parse import ParsedDoc, PromoType, parse_docs
 from scraper.sync_scryfall import _strip_booster_fun_suffix
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 _SET_CODE_RE = re.compile(r".*\[(.*)]")
 
-def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | None:
+def _get_printing(session: Session, set_row: HareruyaSet, doc: ParsedDoc) -> Printing | None:
     """Look up the printing this price observation belongs to.
 
     Scryfall (via sync_scryfall.py) is the source of truth for which
@@ -130,7 +130,7 @@ def _get_printing(session: Session, set_row: Set, doc: ParsedDoc) -> Printing | 
 
 async def crawl_set(
     session: Session,
-    set_row: Set,
+    set_row: HareruyaSet,
     client: HareruyaClient,
     *,
     non_foil_only: bool = False,
@@ -189,7 +189,7 @@ async def crawl_set(
 
 async def crawl_sets(
     session: Session,
-    sets: list[Set],
+    sets: list[HareruyaSet],
     *,
     min_interval_seconds: float = 3.0,
 ) -> None:
@@ -223,7 +223,7 @@ if __name__ == "__main__":
 
     with SessionLocal() as session:
         if not param.isdigit():
-            set_row = session.query(Set).filter_by(set_code=param).all()
+            set_row = session.query(HareruyaSet).filter_by(set_code=param).all()
         else:
-            set_row = session.query(Set).filter_by(hareruya_cardset_id=int(param)).all()
+            set_row = session.query(HareruyaSet).filter_by(hareruya_cardset_id=int(param)).all()
         asyncio.run(crawl_sets(session, set_row))

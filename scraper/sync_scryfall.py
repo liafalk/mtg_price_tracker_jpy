@@ -31,6 +31,7 @@ the price crawler to attach prices to.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 from enum import StrEnum
 import gzip
 import json
@@ -41,16 +42,17 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
-from sqlalchemy import case, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
-from models import Printing, Set
+from models import Printing, ScryfallSet, HareruyaSet
 
 logger = logging.getLogger(__name__)
 
 BULK_DATA_INDEX_URL = "https://api.scryfall.com/bulk-data"
 SETS_URL = "https://api.scryfall.com/sets"
+MTGJSON_SET_LIST_URL = "https://mtgjson.com/api/v5/SetList.json"
 MAINFEST_URL = "https://api.scryfall.com/cards/manifest"
 
 DEFAULT_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "config" / "set_code_overrides.toml"
@@ -68,7 +70,7 @@ REQUEST_HEADERS = {
 async def _get_bulk_data_download_uri(client: httpx.AsyncClient, type: BulkDataType) -> str:
     resp = await client.get(BULK_DATA_INDEX_URL, headers=REQUEST_HEADERS)
     resp.raise_for_status()
-    entries: list[dict[str, any]] = resp.json()["data"]
+    entries: list[dict[str, Any]] = resp.json()["data"]
     for entry in entries:
         if entry["type"] == type:
             # jsonl_download_uri is current as of the July 2026 format
@@ -94,7 +96,7 @@ def _strip_booster_fun_suffix(hareruya_product_code: str) -> str:
     return hareruya_product_code
 
 
-def _is_booster_fun_set(set_row: Set) -> bool:
+def _is_booster_fun_set(set_row: HareruyaSet) -> bool:
     return bool(
         set_row.hareruya_product_code
         and set_row.hareruya_product_code.upper().endswith(_BOOSTER_FUN_SUFFIX)
@@ -105,6 +107,96 @@ async def _fetch_all_scryfall_set_codes(client: httpx.AsyncClient) -> set[str]:
     resp = await client.get(SETS_URL, headers=REQUEST_HEADERS)
     resp.raise_for_status()
     return {entry["code"] for entry in resp.json()["data"]}
+
+
+async def fetch_scryfall_sets() -> list[dict[str, Any]]:
+    """Fetch the canonical set metadata from Scryfall."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(SETS_URL, headers=REQUEST_HEADERS)
+        resp.raise_for_status()
+
+    rows: list[dict[str, Any]] = []
+    for entry in resp.json()["data"]:
+        release_date = entry.get("released_at")
+        rows.append(
+            {
+                "code": entry["code"],
+                "name_en": entry["name"],
+                "release_date": (
+                    dt.date.fromisoformat(release_date) if release_date else None
+                ),
+            }
+        )
+    return rows
+
+
+async def fetch_mtgjson_japanese_names() -> dict[str, str]:
+    """Fetch Japanese set-name translations keyed by set code."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(MTGJSON_SET_LIST_URL, headers=REQUEST_HEADERS)
+        resp.raise_for_status()
+
+    entries = resp.json().get("data", [])
+    return {
+        entry["code"].lower(): translations["Japanese"]
+        for entry in entries
+        if entry.get("code")
+        and (translations := entry.get("translations", {})).get("Japanese")
+    }
+
+
+def upsert_scryfall_sets(session: Session, rows: list[dict[str, Any]]) -> None:
+    """Insert or refresh canonical Scryfall set metadata."""
+    existing = {
+        set_row.code: set_row
+        for set_row in session.execute(select(ScryfallSet)).scalars().all()
+    }
+    created = 0
+    updated = 0
+
+    for row in rows:
+        set_row = existing.get(row["code"])
+        if set_row is None:
+            session.add(ScryfallSet(**row))
+            created += 1
+            continue
+
+        set_row.name_en = row["name_en"]
+        if row.get("name_jp"):
+            set_row.name_jp = row["name_jp"]
+        set_row.release_date = row["release_date"]
+        updated += 1
+
+    session.commit()
+    logger.info("Scryfall sets: %d created, %d updated", created, updated)
+
+
+def fill_missing_japanese_set_names(session: Session) -> None:
+    """Use Hareruya labels as a fallback for missing Japanese names."""
+    scryfall_sets = {
+        set_row.code: set_row
+        for set_row in session.execute(select(ScryfallSet)).scalars().all()
+    }
+    updated = 0
+    for set_row in session.execute(select(HareruyaSet)).scalars().all():
+        if not set_row.set_code:
+            continue
+        canonical = scryfall_sets.get(set_row.set_code)
+        if canonical and not canonical.name_jp and set_row.name_jp:
+            canonical.name_jp = set_row.name_jp
+            updated += 1
+
+    session.commit()
+    logger.info("Hareruya fallback Japanese set names: %d updated", updated)
+
+
+async def sync_scryfall_sets(session: Session) -> None:
+    """Refresh canonical sets and their Japanese names."""
+    japanese_names = await fetch_mtgjson_japanese_names()
+    rows = await fetch_scryfall_sets()
+    for row in rows:
+        row["name_jp"] = japanese_names.get(row["code"].lower())
+    upsert_scryfall_sets(session, rows)
 
 
 def load_set_code_overrides(path: Path | None = None) -> dict[int, str]:
@@ -171,11 +263,11 @@ async def resolve_scryfall_set_codes(
     async with httpx.AsyncClient(timeout=30.0) as client:
         valid_codes = await _fetch_all_scryfall_set_codes(client)
 
-    unresolved: list[Set] = []
+    unresolved: list[HareruyaSet] = []
     resolved = 0
     overridden = 0
 
-    for set_row in session.execute(select(Set)).scalars().all():
+    for set_row in session.execute(select(HareruyaSet)).scalars().all():
         override = overrides.get(set_row.hareruya_cardset_id)
         if override:
             if override not in valid_codes:
@@ -381,7 +473,7 @@ def _relevant_rows(cards: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
 
 def _build_set_resolver(
     session: Session,
-) -> tuple[dict[str, Set], dict[str, Set]]:
+) -> tuple[dict[str, HareruyaSet], dict[str, HareruyaSet]]:
     """Groups local Set rows by shared scryfall_set_code, splitting
     each group into its "primary" (normal-frame) and "booster fun"
     entry where both exist.
@@ -389,10 +481,10 @@ def _build_set_resolver(
     Returns (primary_by_code, booster_fun_by_code) -- either dict may
     be missing a given code if that variant isn't tracked locally.
     """
-    primary_by_code: dict[str, Set] = {}
-    booster_fun_by_code: dict[str, Set] = {}
+    primary_by_code: dict[str, HareruyaSet] = {}
+    booster_fun_by_code: dict[str, HareruyaSet] = {}
 
-    for set_row in session.execute(select(Set)).scalars().all():
+    for set_row in session.execute(select(HareruyaSet)).scalars().all():
         if not set_row.set_code:
             continue
         if _is_booster_fun_set(set_row):
@@ -553,7 +645,9 @@ async def update_japanese_data(session: Session):
 
 
 async def run(session: Session) -> None:
+    await sync_scryfall_sets(session)
     await resolve_scryfall_set_codes(session)
+    fill_missing_japanese_set_names(session)
     cards_path = await fetch_default_cards(BulkDataType.DEFAULT)
     try:
         sync_printings(session, cards_path)
@@ -585,7 +679,7 @@ if __name__ == "__main__":
     )
     subparsers.add_parser(
         "sets",
-        help="Resolve Hareruya set codes against Scryfall set codes only.",
+        help="Sync Scryfall sets and resolve Hareruya set codes.",
     )
     subparsers.add_parser(
         "sync_jp",
@@ -602,7 +696,9 @@ if __name__ == "__main__":
     with SessionLocal() as session:
         match args.command:
             case "sets":
+                asyncio.run(sync_scryfall_sets(session))
                 asyncio.run(resolve_scryfall_set_codes(session, overrides_path=args.overrides))
+                fill_missing_japanese_set_names(session)
             case "sync_en":
                 cards_path = asyncio.run(fetch_default_cards(BulkDataType.DEFAULT))
                 try:
