@@ -330,3 +330,6 @@ const card = extractCardPath();
 if (card) {
   doLookup(card.setCode, card.number);
 }
+
+// Reusable suggestion dropdown for the search box.
+initSuggestions(searchTermInput);

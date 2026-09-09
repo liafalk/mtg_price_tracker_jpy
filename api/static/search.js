@@ -274,3 +274,6 @@ if (setCode) {
 } else if (query) {
   loadSearchResults(query, '');
 }
+
+// Reusable suggestion dropdown for the search box.
+initSuggestions(searchTermInput);

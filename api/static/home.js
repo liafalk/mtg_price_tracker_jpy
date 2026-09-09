@@ -149,6 +149,9 @@ searchForm.addEventListener('submit', (e) => {
   window.location.href = `/search?${params.toString()}`;
 });
 
+// Reusable suggestion dropdown (auto-initialized via suggestions.js).
+initSuggestions(searchTermInput);
+
 function restoreLanguage() {
   const saved = localStorage.getItem('activeLanguage');
   if (saved === 'ja' || saved === 'en') {

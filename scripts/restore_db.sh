@@ -6,7 +6,7 @@ if [ "${BACKUP_CONTAINER:-0}" = "1" ]; then
     echo "Usage: restore_db.sh /backups/database-TIMESTAMP.dump" >&2
     exit 1
   fi
-  pg_restore --clean --if-exists --no-owner --exit-on-error --jobs="${RESTORE_JOBS:-4}" "$1"
+  pg_restore --clean --if-exists --no-owner --exit-on-error --jobs="${RESTORE_JOBS:-4} -d jpy_mtg_prices" "$1"
   echo "Restore completed from $1"
   exit 0
 fi

@@ -158,6 +158,54 @@ def search_cards(query: str = Query(..., alias="q")) -> dict[str, Any]:
     return {"results": results}
 
 
+@app.get("/api/suggestions")
+def suggest_card_names(
+    query: str = Query(..., alias="q"),
+    limit: int = Query(10, ge=1, le=25),
+) -> dict[str, Any]:
+    """Autocomplete helper: leading-match card names as the user types.
+
+    Returns up to `limit` printings whose English or Japanese card name
+    begins with the query (case-insensitive). Payload is intentionally small
+    -- this endpoint may be hit on every keystroke -- so we return only the
+    fields needed to render a dropdown and build a lookup URL. The `ilike`
+    pattern is passed as a bound DB parameter (never string-built into SQL),
+    which keeps this safe to run on a large table.
+    """
+    term = query.strip().lower()
+    if not term:
+        return {"results": []}
+
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(Printing)
+            .where(
+                or_(
+                    Printing.name_en.ilike(term + "%"),
+                    Printing.name_jp.ilike(term + "%"),
+                )
+            )
+            .distinct()
+            .order_by(Printing.name_en.asc())
+            .limit(limit)
+        ).scalars().all()
+
+        results = [
+            {
+                "id": row.id,
+                "set_code": (row.set_code or "").strip().lower(),
+                "collector_number": row.collector_number,
+                "name_en": row.name_en,
+                "name_jp": row.name_jp or "",
+                "thumb": row.img_thumb_uri or row.img_thumb_uri_jp,
+                "thumb_jp": row.img_thumb_uri_jp,
+                "detail_url": f"/card/{row.set_code}/{row.collector_number}",
+            }
+            for row in rows
+        ]
+
+    return {"results": results}
+
 @app.get("/api/set_cards")
 def get_cards_for_set(set_code: str = Query(..., alias="set")) -> dict[str, Any]:
     set_code = set_code.strip().lower()

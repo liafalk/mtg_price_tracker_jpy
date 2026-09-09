@@ -18,9 +18,13 @@
   </div>
 
   <div class="layout-shell">
-    <main class="main-column">
-      <form id="search-form" style="margin-bottom:0.75rem;">
-        <input id="search-term" placeholder="Search card name" autocomplete="off" style="width: 18rem;">
+          <main class="main-column">
+            <form id="search-form" style="margin-bottom:0.75rem;">
+
+        <div class="suggestions-container">
+          <input id="search-term" placeholder="Search card name" autocomplete="off" data-suggestions style="width: 18rem; position: relative;">
+          <ul id="suggestions-list" class="suggestions-list" aria-hidden="true"></ul>
+        </div>
         <button id="search-btn" type="submit">Search</button>
       </form>
 
@@ -41,6 +45,7 @@
     </aside>
   </div>
 
+<script src="/static/suggestions.js"></script>
 <script src="/static/home.js"></script>
 </body>
 </html>
