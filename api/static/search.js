@@ -100,6 +100,13 @@ function renderRecentSets(sets) {
     link.className = 'recent-set-item';
     link.href = `/search?set=${encodeURIComponent(set.code)}&lang=${activeLanguage}`;
 
+    const container = document.createElement('div');
+    container.className = 'recent-set-item-flex';
+
+    const icon = document.createElement('img');
+    icon.className = 'recent-set-icon';
+    icon.src = 'https://svgs.scryfall.io/sets/' + set.code.toLowerCase() + '.svg';
+
     const code = document.createElement('span');
     code.className = 'recent-set-code';
     code.textContent = set.code.toUpperCase();
@@ -121,8 +128,10 @@ function renderRecentSets(sets) {
       date.textContent = activeLanguage === 'ja' ? 'リリース日不明' : 'Date unknown';
     }
 
-    link.appendChild(code);
-    link.appendChild(name);
+    link.appendChild(container);
+    container.appendChild(icon);
+    container.appendChild(code);
+    container.appendChild(name);
     link.appendChild(date);
     item.appendChild(link);
     recentSetsList.appendChild(item);
@@ -131,7 +140,7 @@ function renderRecentSets(sets) {
 
 async function loadRecentSets() {
   try {
-    const resp = await fetch('/api/recent_sets?limit=8');
+    const resp = await fetch('/api/recent_sets?limit=12');
     const body = await resp.json().catch(() => ({ sets: [] }));
     renderRecentSets(body.sets || []);
   } catch (err) {

@@ -87,7 +87,12 @@ def recent_sets(limit: int = Query(8, ge=1, le=20)) -> dict[str, list[dict[str, 
     with SessionLocal() as session:
         rows = session.execute(
             select(ScryfallSet)
-            .where(ScryfallSet.code.is_not(None))
+            .where(ScryfallSet.code.is_not(None),
+                   or_(
+                       ScryfallSet.set_type == "expansion",
+                       ScryfallSet.set_type == "core",
+                       ScryfallSet.set_type == "masters"),
+                    ScryfallSet.parent_set_code.is_(None))
             .order_by(ScryfallSet.release_date.desc().nullslast(), ScryfallSet.name_jp.asc())
             .limit(limit)
         ).scalars().all()

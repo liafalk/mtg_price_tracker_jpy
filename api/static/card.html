@@ -1,152 +1,539 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Card details | JPY MTG Prices</title>
-<link rel="stylesheet" href="/static/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="/static/i18n.js"></script>
-<script src="/static/suggestions.js"></script>
-</head>
-<body>
-  <div class="page-header">
-    <h1 id="page-title">JPY MTG Card Prices</h1>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Card details | JPY MTG Prices</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/suggestions.js"></script>
+  </head>
+  <body>
+    <div class="page-header">
+      <h1 id="page-title">JPY MTG Card Prices</h1>
 
-    <div class="language-toggle" aria-label="Card language selector">
-      <button type="button" class="lang-btn active" data-language="en">English</button>
-      <button type="button" class="lang-btn" data-language="ja">日本語</button>
+      <div class="language-toggle" aria-label="Card language selector">
+        <button type="button" class="lang-btn active" data-language="en">
+          English
+        </button>
+        <button type="button" class="lang-btn" data-language="ja">
+          日本語
+        </button>
+      </div>
     </div>
-  </div>
 
-  <div class="search-tools" aria-label="Search tools">
-    <form id="search-form" class="inline-search-form">
-      <div class="suggestions-container">
-        <input id="search-term" placeholder="Search card name" autocomplete="off" data-suggestions style="position: relative;">
-        <ul id="suggestions-list" class="suggestions-list" aria-hidden="true"></ul>
-      </div>
-      <button id="search-btn" type="submit">Search</button>
-    </form>
+    <div class="layout-shell">
+      <div class="search-tools" aria-label="Search tools">
+        <form id="search-form" class="inline-search-form">
+          <div class="suggestions-container">
+            <input
+              id="search-term"
+              placeholder="Search card name"
+              autocomplete="off"
+              data-suggestions
+              style="position: relative"
+            />
+            <ul
+              id="suggestions-list"
+              class="suggestions-list"
+              aria-hidden="true"
+            ></ul>
+          </div>
+          <button id="search-btn" type="submit">Search</button>
+        </form>
 
-    <span class="search-divider" aria-hidden="true">or</span>
+        <span class="search-divider" aria-hidden="true">or</span>
 
-    <form id="lookup-form" class="inline-search-form">
-      <select id="set-code" required>
-        <option value="">Select set code</option>
-      </select>
-      <input id="collector-number" placeholder="Collector number (e.g. 119)" autocomplete="off">
-      <button id="submit-btn" type="submit">Look up</button>
-    </form>
-  </div>
-
-  <div id="error"></div>
-
-  <div id="card-header">
-    <div class="card-visual">
-      <img id="card-image" alt="">
-      <button id="flip-card-btn" type="button" hidden>Show back</button>
-    </div>
-    <div class="card-content">
-      <h2 id="card-title"></h2>
-      <div id="card-meta"></div>
-
-      <div class="section-label" data-i18n-key="marketPrice">Market price</div>
-      <div class="compact-panel">
-        <div id="price-summary"></div>
+        <form id="lookup-form" class="inline-search-form">
+          <select id="set-code" required>
+            <option value="">Select set code</option>
+          </select>
+          <input
+            id="collector-number"
+            placeholder="Collector number (e.g. 119)"
+            autocomplete="off"
+          />
+          <button id="submit-btn" type="submit">Look up</button>
+        </form>
       </div>
 
-      <div class="inventory-title-row">
-        <div class="section-label" data-i18n-key="inventory">Inventory</div>
-        <button type="button" class="inventory-save-btn" data-i18n-key="save">Save</button>
-      </div>
-        <div class="inventory-language-container">
-          <div class="inventory-language-header" data-i18n-key="languageEn">EN</div>
-          <div class="inventory-type-grid">
-            <div class="inventory-type-block">
-              <div class="inventory-type-header" data-i18n-key="inventoryNonFoil">Non-foil</div>
-              <div class="inventory-condition-grid">
-                <div class="inventory-condition-row">
-                  <span>NM</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="EN non-foil NM quantity">
+      <div id="error"></div>
+
+      <div id="card-header">
+        <div class="card-visual">
+          <img id="card-image" alt="" />
+          <button id="flip-card-btn" type="button" hidden>Show back</button>
+        </div>
+        <div class="card-content">
+          <h2 id="card-title"></h2>
+          <div id="card-meta"></div>
+
+          <div class="section-label" data-i18n-key="marketPrice">
+            Market price
+          </div>
+          <div class="compact-panel">
+            <div id="price-summary"></div>
+          </div>
+
+          <div class="inventory-title-row">
+            <div class="section-label" data-i18n-key="inventory">Inventory</div>
+            <button
+              type="button"
+              class="inventory-save-btn"
+              data-i18n-key="save"
+            >
+              Save
+            </button>
+          </div>
+          <div class="inventory-language-container">
+            <div class="inventory-language-header" data-i18n-key="languageEn">
+              EN
+            </div>
+            <div class="inventory-type-grid">
+              <div class="inventory-type-block">
+                <div
+                  class="inventory-type-header"
+                  data-i18n-key="inventoryNonFoil"
+                >
+                  Non-foil
+                </div>
+                <div class="inventory-condition-grid">
+                  <div class="inventory-condition-row">
+                    <span>NM</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="EN non-foil NM quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="EN non-foil NM price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="EN non-foil NM price" placeholder="¥">
+                  </div>
+                  <div class="inventory-condition-row">
+                    <span>EX</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="EN non-foil EX quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="EN non-foil EX price"
+                          placeholder="¥"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div class="inventory-condition-row">
+                    <span>LP</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="EN non-foil LP quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="EN non-foil LP price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div class="inventory-condition-row">
-                  <span>EX</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="EN non-foil EX quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="EN non-foil EX price" placeholder="¥">
+              </div>
+
+              <div class="inventory-type-block">
+                <div
+                  class="inventory-type-header"
+                  data-i18n-key="inventoryFoil"
+                >
+                  Foil
+                </div>
+                <div class="inventory-condition-grid">
+                  <div class="inventory-condition-row">
+                    <span>NM</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="EN foil NM quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="EN foil NM price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div class="inventory-condition-row">
-                  <span>LP</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="EN non-foil LP quantity">
+                  <div class="inventory-condition-row">
+                    <span>EX</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="EN foil EX quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="EN foil EX price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="EN non-foil LP price" placeholder="¥">
+                  </div>
+                  <div class="inventory-condition-row">
+                    <span>LP</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="EN foil LP quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="EN foil LP price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
 
-            <div class="inventory-type-block">
-              <div class="inventory-type-header" data-i18n-key="inventoryFoil">Foil</div>
-              <div class="inventory-condition-grid">
-                <div class="inventory-condition-row">
-                  <span>NM</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="EN foil NM quantity">
+          <div class="inventory-language-container">
+            <div class="inventory-language-header" data-i18n-key="languageJp">
+              JP
+            </div>
+            <div class="inventory-type-grid">
+              <div class="inventory-type-block">
+                <div
+                  class="inventory-type-header"
+                  data-i18n-key="inventoryNonFoil"
+                >
+                  Non-foil
+                </div>
+                <div class="inventory-condition-grid">
+                  <div class="inventory-condition-row">
+                    <span>NM</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="JP non-foil NM quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="JP non-foil NM price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="EN foil NM price" placeholder="¥">
+                  </div>
+                  <div class="inventory-condition-row">
+                    <span>EX</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="JP non-foil EX quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="JP non-foil EX price"
+                          placeholder="¥"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div class="inventory-condition-row">
+                    <span>LP</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="JP non-foil LP quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="JP non-foil LP price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div class="inventory-condition-row">
-                  <span>EX</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="EN foil EX quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="EN foil EX price" placeholder="¥">
+              </div>
+
+              <div class="inventory-type-block">
+                <div
+                  class="inventory-type-header"
+                  data-i18n-key="inventoryFoil"
+                >
+                  Foil
+                </div>
+                <div class="inventory-condition-grid">
+                  <div class="inventory-condition-row">
+                    <span>NM</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="JP foil NM quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="JP foil NM price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div class="inventory-condition-row">
-                  <span>LP</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="EN foil LP quantity">
+                  <div class="inventory-condition-row">
+                    <span>EX</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="JP foil EX quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="JP foil EX price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="EN foil LP price" placeholder="¥">
+                  </div>
+                  <div class="inventory-condition-row">
+                    <span>LP</span>
+                    <div class="inventory-input-pair">
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryQtyLabel"
+                          >qty</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          value="0"
+                          aria-label="JP foil LP quantity"
+                        />
+                      </div>
+                      <div class="inventory-field-wrap">
+                        <span
+                          class="inventory-field-label"
+                          data-i18n-key="inventoryPriceLabel"
+                          >price</span
+                        >
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value="0"
+                          aria-label="JP foil LP price"
+                          placeholder="¥"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -154,130 +541,36 @@
             </div>
           </div>
         </div>
-
-
-        <div class="inventory-language-container">
-          <div class="inventory-language-header" data-i18n-key="languageJp">JP</div>
-          <div class="inventory-type-grid">
-            <div class="inventory-type-block">
-              <div class="inventory-type-header" data-i18n-key="inventoryNonFoil">Non-foil</div>
-              <div class="inventory-condition-grid">
-                <div class="inventory-condition-row">
-                  <span>NM</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="JP non-foil NM quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="JP non-foil NM price" placeholder="¥">
-                    </div>
-                  </div>
-                </div>
-                <div class="inventory-condition-row">
-                  <span>EX</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="JP non-foil EX quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="JP non-foil EX price" placeholder="¥">
-                    </div>
-                  </div>
-                </div>
-                <div class="inventory-condition-row">
-                  <span>LP</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="JP non-foil LP quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="JP non-foil LP price" placeholder="¥">
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="inventory-type-block">
-              <div class="inventory-type-header" data-i18n-key="inventoryFoil">Foil</div>
-              <div class="inventory-condition-grid">
-                <div class="inventory-condition-row">
-                  <span>NM</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="JP foil NM quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="JP foil NM price" placeholder="¥">
-                    </div>
-                  </div>
-                </div>
-                <div class="inventory-condition-row">
-                  <span>EX</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="JP foil EX quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="JP foil EX price" placeholder="¥">
-                    </div>
-                  </div>
-                </div>
-                <div class="inventory-condition-row">
-                  <span>LP</span>
-                  <div class="inventory-input-pair">
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryQtyLabel">qty</span>
-                      <input type="number" min="0" value="0" aria-label="JP foil LP quantity">
-                    </div>
-                    <div class="inventory-field-wrap">
-                      <span class="inventory-field-label" data-i18n-key="inventoryPriceLabel">price</span>
-                      <input type="number" min="0" step="0.01" value="0" aria-label="JP foil LP price" placeholder="¥">
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
+
+      <section class="history-panel" aria-label="Price history panel">
+        <div class="history-panel-header">
+          <h3 id="price-history-header">Price history</h3>
+        </div>
+
+        <div id="chart-wrap">
+          <canvas id="price-chart"></canvas>
+        </div>
+
+        <table id="latest-table">
+          <thead>
+            <tr>
+              <th>Language</th>
+              <th>Foil</th>
+              <th>Price (&yen;)</th>
+              <th>Stock</th>
+              <th>Weekly sales</th>
+              <th>Last updated</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <aside class="sidebar-panel" aria-labelledby="recent-sets-title">
+        <h2 id="recent-sets-title">Recent sets</h2>
+        <ul id="recent-sets" class="recent-set-list"></ul>
+      </aside>
     </div>
-  </div>
-
-  <section class="history-panel" aria-label="Price history panel">
-    <div class="history-panel-header">
-      <h3 id="price-history-header">Price history</h3>
-    </div>
-
-    <div id="chart-wrap">
-      <canvas id="price-chart"></canvas>
-    </div>
-
-    <table id="latest-table">
-      <thead>
-        <tr>
-          <th>Language</th>
-          <th>Foil</th>
-          <th>Price (&yen;)</th>
-          <th>Stock</th>
-          <th>Weekly sales</th>
-          <th>Last updated</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </section>
-
-<script src="/static/card.js"></script>
-</body>
+    <script src="/static/card.js"></script>
+  </body>
 </html>
