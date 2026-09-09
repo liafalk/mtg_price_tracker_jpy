@@ -52,6 +52,9 @@ class ScryfallSet(Base):
     name_jp: Mapped[str | None] = mapped_column(String(256), nullable=True)
     release_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
 
+    set_type: Mapped[str] = mapped_column(String(32), index=True)
+    parent_set_code: Mapped[str | None] = mapped_column(String(16))
+
     hareruya_sets: Mapped[list["HareruyaSet"]] = relationship(back_populates="scryfall_set")
 
     def __repr__(self) -> str:  # pragma: no cover

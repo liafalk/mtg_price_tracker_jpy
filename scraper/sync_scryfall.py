@@ -125,6 +125,8 @@ async def fetch_scryfall_sets() -> list[dict[str, Any]]:
                 "release_date": (
                     dt.date.fromisoformat(release_date) if release_date else None
                 ),
+                "parent_set_code": entry.get("parent_set_code"),
+                "set_type": entry["set_type"]
             }
         )
     return rows
@@ -164,7 +166,9 @@ def upsert_scryfall_sets(session: Session, rows: list[dict[str, Any]]) -> None:
         set_row.name_en = row["name_en"]
         if row.get("name_jp"):
             set_row.name_jp = row["name_jp"]
-        set_row.release_date = row["release_date"]
+        set_row.set_type = row["set_type"]
+        set_row.parent_set_code = row["parent_set_code"]
+
         updated += 1
 
     session.commit()
