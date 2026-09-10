@@ -187,19 +187,4 @@ def test_prices_returns_404_for_unknown_card():
     assert response.status_code == 404
 
 
-# --------------------------------------------------------------------------
-# Static page routes
-# --------------------------------------------------------------------------
-def test_home_page_returns_200():
-    with patch("api.main.SessionLocal", printing_session_factory):
-        response = client.get("/")
 
-    assert response.status_code == 200
-    assert b"JPY MTG" in response.content
-
-
-def test_search_page_returns_200():
-    with patch("api.main.SessionLocal", printing_session_factory):
-        response = client.get("/search")
-
-    assert response.status_code == 200

@@ -2,6 +2,7 @@
 	import { language, I18N } from '$lib/i18n';
 	import { fetchSets } from '$lib/api';
 	import Suggestions from './Suggestions.svelte';
+	import SetCodeAutocomplete from './SetCodeAutocomplete.svelte';
 
 	let { onNavigate }: { onNavigate?: (url: string) => void } = $props();
 
@@ -56,12 +57,11 @@
 	<span class="search-divider" aria-hidden="true">or</span>
 
 	<form class="inline-search-form" onsubmit={submitLookup}>
-		<select id="set-code" bind:value={setCode}>
-			<option value="">{lang === 'ja' ? 'セットコードを選択' : 'Select set code'}</option>
-			{#each setCodes as code (code)}
-				<option value={code}>{code.toUpperCase()}</option>
-			{/each}
-		</select>
+		<SetCodeAutocomplete
+			setCodes={setCodes}
+			placeholder={dict.setCodePlaceholder}
+			onPick={(code) => (setCode = code)}
+		/>
 		<input
 			id="collector-number"
 			type="text"

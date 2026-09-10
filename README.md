@@ -229,7 +229,6 @@ Example:
 
 ```bash
 chmod +x scripts/backup_db.sh scripts/restore_db.sh
-cp .env.example .env
 sudo mkdir -p /var/backups/jpy-mtg
 sudo chown $USER /var/backups/jpy-mtg
 BACKUP_DIR=/var/backups/jpy-mtg ./scripts/backup_db.sh
@@ -238,7 +237,7 @@ BACKUP_DIR=/var/backups/jpy-mtg ./scripts/backup_db.sh
 Then add a cron entry:
 
 ```cron
-0 */6 * * * BACKUP_DIR=/var/backups/jpy-mtg /path/to/hareruya_scraper/scripts/backup_db.sh >> /var/log/jpy-mtg-backup.log 2>&1
+0 */6 * * * BACKUP_DIR=/var/backups/jpy-mtg /path/to/jpy-mtg-prices/scripts/backup_db.sh >> /var/log/jpy-mtg-backup.log 2>&1
 ```
 
 ### Restore
@@ -265,15 +264,22 @@ scraper/
   tiering.py               # hot/warm/cold assignment + today's crawl list
   crawl.py                 # crawl Hareruya prices, attach to existing printings
   daily_run.py             # daily entrypoint: retier -> pick sets -> crawl
+  full_run.py              # one-off full crawl of every tracked set
 config/
   set_code_overrides.toml  # manual Hareruya -> Scryfall set code overrides
 api/
   main.py                  # FastAPI app: /api/* JSON endpoints (sets, search, prices, ...)
-  static/                  # legacy vanilla-JS frontend (superseded by web/)
 web/                       # SvelteKit frontend (TypeScript, Svelte 5)
   src/routes/              # home, /search, /card/[set]/[number]
   src/lib/                 # api client, i18n, shared components, global styles
   Dockerfile               # multi-stage build, serves `node build`
+scripts/
+  backup_db.sh             # pg_dump via the `backup` compose service
+  restore_db.sh            # restore a dump into the running DB
+  migrate_legacy_schema.py # one-time migration (see Data model below)
+scanner/                   # experimental card scanner (see scanner/README.md)
+tests/                     # API endpoint tests
+backups/                   # local backup dumps (default BACKUP_DIR)
 requirements.txt
 docker-compose.yml         # Postgres + app + web + frontend containers (see Setup below)
 Dockerfile
@@ -430,28 +436,29 @@ needed entries to `config/set_code_overrides.toml`.
 
 ## Web UI
 
-A minimal card price lookup page: enter a Scryfall set code and
-collector number, get a table of the latest JP/EN, foil/non-foil
-prices and a chart of price history for each.
+The frontend is the SvelteKit app in `web/`: enter a Scryfall set code
+and collector number (both with autocomplete), get a table of the
+latest JP/EN, foil/non-foil prices and a chart of price history for
+each. It's read-only against the DB — looking something up never hits
+Hareruya. If a card shows up but every price cell is empty, the crawler
+hasn't run for that set yet (or hasn't run *with foil included* — see
+below).
 
 **Docker Compose** (recommended — starts alongside the DB):
 
 ```bash
-docker compose up -d db web
+docker compose up -d db web frontend
 ```
 
-Then open `http://localhost:8000`.
+Then open `http://localhost:5173` (the API itself stays on
+`http://localhost:8000`).
 
 **Locally**, with `DATABASE_URL` pointing at a reachable Postgres:
 
 ```bash
-uvicorn api.main:app --reload
+uvicorn api.main:app --reload        # terminal 1 -> http://localhost:8000
+cd web && npm install && npm run dev # terminal 2 -> http://localhost:5173
 ```
-
-It's read-only against the local DB — looking something up never hits
-Hareruya. If a card shows up but every price cell is empty, the crawler
-hasn't run for that set yet (or hasn't run *with foil included* — see
-below).
 
 ### Foil prices
 

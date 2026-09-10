@@ -1,10 +1,10 @@
 """
-Minimal web app: look up a card by (Scryfall set code, collector
-number) and see its latest JP/EN, foil/non-foil prices as a table,
-plus full price history for a chart.
+FastAPI backend for the JPY MTG price tracker.
 
-Reads directly from the local DB the scraper populates -- never hits
-Hareruya on a user request, only the scheduled crawl does that.
+Serves JSON endpoints (sets, search, suggestions, prices, etc.) that
+the SvelteKit frontend in web/ consumes. Reads directly from the local
+DB the scraper populates -- never hits Hareruya on a user request,
+only the scheduled crawl does that.
 
 Run:
     uvicorn api.main:app --reload
@@ -15,13 +15,10 @@ Or via Docker Compose (see docker-compose.yml's `web` service):
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -39,27 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-STATIC_DIR = Path(__file__).resolve().parent / "static"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-@app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "home.html")
-
-
-@app.get("/search")
-@app.get("/search/")
-def search_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "search.html")
-
-
-@app.get("/card/{set_code}/{collector_number}")
-@app.get("/card/{set_code}/{collector_number}/")
-def card_resource() -> FileResponse:
-    return FileResponse(STATIC_DIR / "card.html")
-
 
 def _find_printing(session: Session, set_code: str, collector_number: str) -> Printing | None:
     set_code = set_code.strip().lower()
