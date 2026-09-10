@@ -5,7 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JPY MTG Prices</title>
     <link rel="stylesheet" href="/static/styles.css" />
-    <script src="/static/i18n.js"></script>
+    <script src="/static/components/i18n.js"></script>
+    <script src="/static/components/language.js"></script>
+    <script src="/static/components/set-codes.js"></script>
+    <script src="/static/components/recent-sets.js"></script>
+    <script src="/static/components/search-forms.js"></script>
+    <script src="/static/components/suggestions.js"></script>
   </head>
   <body>
     <div class="page-header">
@@ -32,11 +37,6 @@
               data-suggestions
               style="width: 18rem; position: relative"
             />
-            <ul
-              id="suggestions-list"
-              class="suggestions-list"
-              aria-hidden="true"
-            ></ul>
           </div>
           <button id="search-btn" type="submit">Search</button>
         </form>
@@ -62,7 +62,6 @@
       </aside>
     </div>
 
-    <script src="/static/suggestions.js"></script>
     <script src="/static/home.js"></script>
   </body>
 </html>

@@ -29,7 +29,9 @@ window.I18N = {
     languageEn: 'EN',
     languageJp: 'JP',
     inventoryNonFoil: 'Non-foil',
-    inventoryFoil: 'Foil'
+    inventoryFoil: 'Foil',
+    recentSetsTitle: 'Recent sets',
+    searchResultsTitle: 'Search results'
   },
   ja: {
     pageTitle: 'JPY MTG カード価格',
@@ -61,6 +63,8 @@ window.I18N = {
     languageEn: 'EN',
     languageJp: 'JP',
     inventoryNonFoil: '通常版',
-    inventoryFoil: 'Foil'
+    inventoryFoil: 'Foil',
+    recentSetsTitle: '最近のセット',
+    searchResultsTitle: '検索結果'
   }
 };

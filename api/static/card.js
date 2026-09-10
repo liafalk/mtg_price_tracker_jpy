@@ -1,3 +1,9 @@
+// Card detail page script.
+//
+// Shared behavior (i18n, language toggle, set-code dropdown, recent sets
+// sidebar, search/lookup forms, name suggestions) lives in /static/components/.
+// This file keeps the page-specific card rendering, price chart, and flip.
+
 const cardImage = document.getElementById('card-image');
 const titleEl = document.getElementById('card-title');
 const cardMetaEl = document.getElementById('card-meta');
@@ -7,22 +13,15 @@ const tbody = table.querySelector('tbody');
 const chartWrap = document.getElementById('chart-wrap');
 const canvas = document.getElementById('price-chart');
 const priceHistoryHeader = document.getElementById('price-history-header');
-const languageButtons = document.querySelectorAll('.lang-btn');
 const cardHeader = document.getElementById('card-header');
 const errorEl = document.getElementById('error');
-const searchForm = document.getElementById('search-form');
 const searchTermInput = document.getElementById('search-term');
 const searchBtn = document.getElementById('search-btn');
-const lookupForm = document.getElementById('lookup-form');
 const setCodeInput = document.getElementById('set-code');
 const collectorNumberInput = document.getElementById('collector-number');
 const submitBtn = document.getElementById('submit-btn');
 const flipCardButton = document.getElementById('flip-card-btn');
-const recentSetsList = document.getElementById('recent-sets');
 
-
-const I18N = window.I18N || {};
-let activeLanguage = 'en';
 let chart = null;
 let currentCardData = null;
 let isBackFace = false;
@@ -41,24 +40,23 @@ const BUCKET_COLORS = {
 };
 const BUCKET_ORDER = ['jp_nonfoil', 'jp_foil', 'en_nonfoil', 'en_foil'];
 
-function t(key) {
-  return I18N[activeLanguage][key];
-}
-
 function applyUiTranslations() {
+  const lang = AppLanguage.activeLanguage;
+  const t = AppLanguage.t;
+
   document.getElementById('page-title').textContent = t('pageTitle');
 
   document.querySelectorAll('[data-i18n-key]').forEach((el) => {
     const key = el.dataset.i18nKey;
-    if (key && I18N[activeLanguage]?.[key]) {
-      el.textContent = I18N[activeLanguage][key];
+    if (key && window.I18N[lang]?.[key]) {
+      el.textContent = window.I18N[lang][key];
     }
   });
 
   if (setCodeInput.tagName === 'SELECT') {
     const blankOption = setCodeInput.querySelector('option[value=""]');
     if (blankOption) {
-      blankOption.textContent = activeLanguage === 'ja' ? 'セットコードを選択' : 'Select set code';
+      blankOption.textContent = lang === 'ja' ? 'セットコードを選択' : 'Select set code';
     }
   } else {
     setCodeInput.placeholder = t('setCodePlaceholder');
@@ -66,8 +64,8 @@ function applyUiTranslations() {
 
   collectorNumberInput.placeholder = t('collectorNumberPlaceholder');
   submitBtn.textContent = t('submit');
-  searchBtn.textContent = activeLanguage === 'ja' ? '検索' : 'Search';
-  searchTermInput.placeholder = activeLanguage === 'ja' ? 'カード名を検索' : 'Search card name';
+  searchBtn.textContent = lang === 'ja' ? '検索' : 'Search';
+  searchTermInput.placeholder = lang === 'ja' ? 'カード名を検索' : 'Search card name';
 
   const tableHeadings = document.querySelectorAll('#latest-table th');
   tableHeadings[0].textContent = t('tableLanguage');
@@ -76,27 +74,11 @@ function applyUiTranslations() {
   tableHeadings[3].textContent = t('tableStock');
   tableHeadings[4].textContent = t('tableWeeklySales');
   tableHeadings[5].textContent = t('tableLastUpdated');
-  priceHistoryHeader.textContent = activeLanguage === 'ja' ? '価格履歴' : 'Price history';
+  priceHistoryHeader.textContent = lang === 'ja' ? '価格履歴' : 'Price history';
+  document.getElementById('recent-sets-title').textContent = t('recentSetsTitle');
 
   updateDisplayedCardLanguage();
 }
-
-languageButtons.forEach((button) => {
-  button.addEventListener('click', () => {
-    activeLanguage = button.dataset.language;
-    languageButtons.forEach((btn) => {
-      btn.classList.toggle('active', btn === button);
-    });
-    applyUiTranslations();
-    localStorage.setItem('activeLanguage', activeLanguage);
-    
-    if (currentCardData) {
-      const params = new URLSearchParams({ lang: activeLanguage });
-      const pathname = window.location.pathname;
-      window.history.replaceState({}, '', `${pathname}?${params.toString()}`);
-    }
-  });
-});
 
 flipCardButton.addEventListener('click', () => {
   if (!currentCardData?.card) return;
@@ -110,26 +92,29 @@ flipCardButton.addEventListener('click', () => {
 function updateDisplayedCardLanguage() {
   if (!currentCardData) return;
 
+  const lang = AppLanguage.activeLanguage;
   const card = currentCardData.card;
-  const name = activeLanguage === 'ja' ? card.name_jp : card.name_en;
+  const name = lang === 'ja'
+    ? (card.name_jp || card.name_en || AppLanguage.t('unknownName'))
+    : (card.name_en || card.name_jp || AppLanguage.t('unknownName'));
   const rarityKey = String(card.rarity || '').toLowerCase();
-  const rarityText = I18N[activeLanguage]?.rarity?.[rarityKey] || card.rarity || '—';
+  const rarityText = window.I18N[lang]?.rarity?.[rarityKey] || card.rarity || '—';
   const metaText = `${card.set_code.toUpperCase()} #${card.collector_number} · ${rarityText}`;
 
   titleEl.textContent = name;
   cardMetaEl.textContent = metaText;
-  document.title = `${name} — ${metaText} | ${t('pageTitle')}`;
+  document.title = `${name} — ${metaText} | ${AppLanguage.t('pageTitle')}`;
 
   const hasBackFace = Boolean(card.double_faced || card.img?.back_grid || card.img?.back_grid_jp);
   flipCardButton.hidden = !hasBackFace;
   if (hasBackFace) {
-    flipCardButton.textContent = isBackFace ? (activeLanguage === 'ja' ? '表面を表示' : 'Show front') : (activeLanguage === 'ja' ? '裏面を表示' : 'Show back');
+    flipCardButton.textContent = isBackFace ? (lang === 'ja' ? '表面を表示' : 'Show front') : (lang === 'ja' ? '裏面を表示' : 'Show back');
   }
 
-  const frontImage = activeLanguage === 'ja'
+  const frontImage = lang === 'ja'
     ? (card.img.grid_jp || card.img.grid)
     : card.img.grid;
-  const backImage = activeLanguage === 'ja'
+  const backImage = lang === 'ja'
     ? (card.img.back_grid_jp || card.img.back_grid || frontImage)
     : (card.img.back_grid || frontImage);
   const imageUrl = isBackFace ? backImage : frontImage;
@@ -142,25 +127,6 @@ function updateDisplayedCardLanguage() {
   }
 }
 
-async function loadSetCodes() {
-  try {
-    const resp = await fetch('/api/sets');
-    const body = await resp.json().catch(() => ({ sets: [] }));
-    const choices = body.sets || [];
-    const selected = setCodeInput.value || '';
-
-    setCodeInput.innerHTML = '<option value="">Select set code</option>' + choices
-      .map((code) => `<option value="${code}">${code.toUpperCase()}</option>`)
-      .join('');
-
-    if (selected) {
-      setCodeInput.value = selected;
-    }
-  } catch (err) {
-    console.error('Failed to load set codes', err);
-  }
-}
-
 function showError(message) {
   errorEl.textContent = message;
   errorEl.style.display = 'block';
@@ -169,6 +135,9 @@ function showError(message) {
 function render(data) {
   currentCardData = data;
   updateDisplayedCardLanguage();
+
+  const lang = AppLanguage.activeLanguage;
+  const t = AppLanguage.t;
 
   priceSummary.innerHTML = '';
   const sorted = [...data.latest].sort((a, b) => {
@@ -182,7 +151,7 @@ function render(data) {
     chip.className = 'price-chip';
     chip.style.borderLeftColor = BUCKET_COLORS[bucket] || '#ccc';
     chip.innerHTML = `
-      <div class="chip-label">${BUCKET_LABELS[bucket][activeLanguage] || bucket}</div>
+      <div class="chip-label">${BUCKET_LABELS[bucket][lang] || bucket}</div>
       <div class="chip-value">&yen;${row.price_yen.toLocaleString()}</div>
     `;
     priceSummary.appendChild(chip);
@@ -192,7 +161,7 @@ function render(data) {
 
   tbody.innerHTML = '';
   if (data.latest.length === 0) {
-    showError('Card found, but there is no price data for it yet -- has the crawler run for this set?');
+    showError(t('noPriceData'));
   } else {
     for (const row of sorted) {
       const tr = document.createElement('tr');
@@ -212,7 +181,7 @@ function render(data) {
   const datasets = BUCKET_ORDER
     .filter((bucket) => data.history[bucket] && data.history[bucket].length > 0)
     .map((bucket) => ({
-      label: BUCKET_LABELS[bucket][activeLanguage],
+      label: BUCKET_LABELS[bucket][lang],
       data: data.history[bucket].map((p) => ({ x: p.fetched_at, y: p.price_yen })),
       borderColor: BUCKET_COLORS[bucket],
       backgroundColor: 'transparent',
@@ -230,7 +199,7 @@ function render(data) {
           x: {
             type: 'time',
             time: { unit: 'day' },
-            title: { display: true, text: activeLanguage === 'ja' ? '日時' : 'Date' },
+            title: { display: true, text: lang === 'ja' ? '日時' : 'Date' },
           },
           y: {
             title: { display: true, text: t('tablePrice') },
@@ -262,25 +231,8 @@ async function doLookup(setCode, number) {
     render(body);
   } catch (err) {
     console.error('Fetch error:', err);
-    showError(t('noCardFound'));
+    showError(AppLanguage.t('noCardFound'));
   }
-}
-
-function restoreLanguage() {
-  const saved = localStorage.getItem('activeLanguage');
-  if (saved === 'ja' || saved === 'en') {
-    activeLanguage = saved;
-  }
-  
-  const params = new URLSearchParams(window.location.search);
-  const lang = params.get('lang');
-  if (lang === 'ja' || lang === 'en') {
-    activeLanguage = lang;
-  }
-  
-  languageButtons.forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.language === activeLanguage);
-  });
 }
 
 function extractCardPath() {
@@ -296,36 +248,17 @@ function extractCardPath() {
   return null;
 }
 
-restoreLanguage();
+AppLanguage.restore();
 applyUiTranslations();
-loadSetCodes();
-
-lookupForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  errorEl.style.display = 'none';
-  errorEl.textContent = '';
-
-  const setCode = setCodeInput.value.trim();
-  const number = collectorNumberInput.value.trim();
-  if (!setCode) return;
-
-  if (!number) {
-    const params = new URLSearchParams({ set: setCode, lang: activeLanguage });
-    window.location.href = `/search?${params.toString()}`;
-    return;
+loadSetCodes(setCodeInput);
+initSearchForms();
+AppLanguage.init(() => {
+  applyUiTranslations();
+  if (currentCardData) {
+    const params = new URLSearchParams({ lang: AppLanguage.activeLanguage });
+    const pathname = window.location.pathname;
+    window.history.replaceState({}, '', `${pathname}?${params.toString()}`);
   }
-
-  const params = new URLSearchParams({ lang: activeLanguage });
-  window.location.href = `/card/${encodeURIComponent(setCode)}/${encodeURIComponent(number)}?${params.toString()}`;
-});
-
-searchForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const query = searchTermInput.value.trim();
-  if (!query) return;
-  const params = new URLSearchParams({ q: query, lang: activeLanguage });
-  window.location.href = `/search?${params.toString()}`;
 });
 
 const card = extractCardPath();
@@ -333,74 +266,9 @@ if (card) {
   doLookup(card.setCode, card.number);
 }
 
-
-function renderRecentSets(sets) {
-  if (!recentSetsList) return;
-  recentSetsList.innerHTML = '';
-
-  if (!Array.isArray(sets) || sets.length === 0) {
-    const emptyItem = document.createElement('li');
-    emptyItem.className = 'recent-set-item';
-    emptyItem.textContent = activeLanguage === 'ja' ? 'セットが見つかりませんでした。' : 'No sets available.';
-    recentSetsList.appendChild(emptyItem);
-    return;
-  }
-
-  for (const set of sets) {
-    const item = document.createElement('li');
-    const link = document.createElement('a');
-    link.className = 'recent-set-item';
-    link.href = `/search?set=${encodeURIComponent(set.code)}&lang=${activeLanguage}`;
-
-    const container = document.createElement('div');
-    container.className = 'recent-set-item-flex';
-
-    const icon = document.createElement('img');
-    icon.className = 'recent-set-icon';
-    icon.src = 'https://svgs.scryfall.io/sets/' + set.code.toLowerCase() + '.svg';
-
-    const code = document.createElement('span');
-    code.className = 'recent-set-code';
-    code.textContent = set.code.toUpperCase();
-
-    const name = document.createElement('span');
-    name.className = 'recent-set-name';
-    name.textContent = set.name || set.code.toUpperCase();
-
-    const date = document.createElement('span');
-    date.className = 'recent-set-date';
-    if (set.release_date) {
-      const formatted = new Date(`${set.release_date}T00:00:00`).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-      date.textContent = formatted;
-    } else {
-      date.textContent = activeLanguage === 'ja' ? 'リリース日不明' : 'Date unknown';
-    }
-
-    link.appendChild(container);
-    container.appendChild(icon);
-    container.appendChild(code);
-    container.appendChild(name);
-    link.appendChild(date);
-    item.appendChild(link);
-    recentSetsList.appendChild(item);
-  }
-}
-
-async function loadRecentSets() {
-  try {
-    const resp = await fetch('/api/recent_sets?limit=12');
-    const body = await resp.json().catch(() => ({ sets: [] }));
-    renderRecentSets(body.sets || []);
-  } catch (err) {
-    console.error('Failed to load recent sets', err);
-  }
-}
-
-
 // Reusable suggestion dropdown for the search box.
 initSuggestions(searchTermInput);
-loadRecentSets();
+
+// Recent sets sidebar (shared component).
+const recentSetsList = document.getElementById('recent-sets');
+loadRecentSets(recentSetsList, AppLanguage.activeLanguage);

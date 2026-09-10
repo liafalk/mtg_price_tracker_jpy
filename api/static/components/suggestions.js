@@ -2,8 +2,8 @@
  * Reusable card-name suggestion dropdown.
  *
  * Usage on any page:
- *   1. Include the script (after i18n.js):
- *        <script src="/static/suggestions.js"></script>
+ *   1. Include the script (after components/i18n.js):
+ *        <script src="/static/components/suggestions.js"></script>
  *   2. Mark the search input so it auto-initializes:
  *        <input id="search-term" data-suggestions>
  *      OR call it explicitly:
@@ -95,6 +95,7 @@
   }
 
   function getActiveLanguage() {
+    if (global.AppLanguage) return global.AppLanguage.activeLanguage;
     const saved = (global.localStorage && global.localStorage.getItem('activeLanguage'));
     return saved === 'ja' || saved === 'en' ? saved : 'en';
   }

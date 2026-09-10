@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Search results | JPY MTG Prices</title>
 <link rel="stylesheet" href="/static/styles.css">
-<script src="/static/i18n.js"></script>
-<script src="/static/suggestions.js"></script>
+<script src="/static/components/i18n.js"></script>
+<script src="/static/components/language.js"></script>
+<script src="/static/components/set-codes.js"></script>
+<script src="/static/components/recent-sets.js"></script>
+<script src="/static/components/search-forms.js"></script>
+<script src="/static/components/suggestions.js"></script>
 </head>
 <body>
   <div class="page-header">
@@ -24,7 +28,6 @@
         <form id="search-form" class="inline-search-form">
           <div class="suggestions-container">
             <input id="search-term" placeholder="Search card name" autocomplete="off" data-suggestions style="position: relative;">
-            <ul id="suggestions-list" class="suggestions-list" aria-hidden="true"></ul>
           </div>
           <button id="search-btn" type="submit">Search</button>
         </form>

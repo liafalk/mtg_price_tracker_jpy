@@ -7,8 +7,12 @@
     <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script src="/static/i18n.js"></script>
-    <script src="/static/suggestions.js"></script>
+    <script src="/static/components/i18n.js"></script>
+    <script src="/static/components/language.js"></script>
+    <script src="/static/components/set-codes.js"></script>
+    <script src="/static/components/recent-sets.js"></script>
+    <script src="/static/components/search-forms.js"></script>
+    <script src="/static/components/suggestions.js"></script>
   </head>
   <body>
     <div class="page-header">
@@ -35,11 +39,6 @@
               data-suggestions
               style="position: relative"
             />
-            <ul
-              id="suggestions-list"
-              class="suggestions-list"
-              aria-hidden="true"
-            ></ul>
           </div>
           <button id="search-btn" type="submit">Search</button>
         </form>

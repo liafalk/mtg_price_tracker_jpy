@@ -1,30 +1,29 @@
+// Search results page script.
+//
+// Shared behavior (i18n, language toggle, set-code dropdown, recent sets
+// sidebar, search/lookup forms, name suggestions) lives in /static/components/.
+// This file keeps the page-specific result-table rendering.
+
 const searchResultsTable = document.getElementById('search-results-table');
 const searchResultsBody = searchResultsTable.querySelector('tbody');
-const searchForm = document.getElementById('search-form');
 const searchTermInput = document.getElementById('search-term');
 const searchBtn = document.getElementById('search-btn');
-const lookupForm = document.getElementById('lookup-form');
 const setCodeInput = document.getElementById('set-code');
 const collectorNumberInput = document.getElementById('collector-number');
 const submitBtn = document.getElementById('submit-btn');
 const errorEl = document.getElementById('error');
-const languageButtons = document.querySelectorAll('.lang-btn');
 const recentSetsList = document.getElementById('recent-sets');
 
-const I18N = window.I18N || {};
-let activeLanguage = 'en';
-
-function t(key) {
-  return I18N[activeLanguage][key];
-}
-
 function applyUiTranslations() {
+  const lang = AppLanguage.activeLanguage;
+  const t = AppLanguage.t;
+
   document.getElementById('page-title').textContent = t('pageTitle');
 
   if (setCodeInput.tagName === 'SELECT') {
     const blankOption = setCodeInput.querySelector('option[value=""]');
     if (blankOption) {
-      blankOption.textContent = activeLanguage === 'ja' ? 'セットコードを選択' : 'Select set code';
+      blankOption.textContent = lang === 'ja' ? 'セットコードを選択' : 'Select set code';
     }
   } else {
     setCodeInput.placeholder = t('setCodePlaceholder');
@@ -32,119 +31,20 @@ function applyUiTranslations() {
 
   collectorNumberInput.placeholder = t('collectorNumberPlaceholder');
   submitBtn.textContent = t('submit');
-  searchBtn.textContent = activeLanguage === 'ja' ? '検索' : 'Search';
-  searchTermInput.placeholder = activeLanguage === 'ja' ? 'カード名を検索' : 'Search card name';
+  searchBtn.textContent = lang === 'ja' ? '検索' : 'Search';
+  searchTermInput.placeholder = lang === 'ja' ? 'カード名を検索' : 'Search card name';
+  document.getElementById('recent-sets-title').textContent = t('recentSetsTitle');
+  document.getElementById('search-results-title').textContent = t('searchResultsTitle');
 
   const searchHeaders = searchResultsTable.querySelectorAll('th');
   if (searchHeaders.length) {
-    searchHeaders[0].textContent = activeLanguage === 'ja' ? 'タイトル' : 'Title';
-    searchHeaders[1].textContent = activeLanguage === 'ja' ? 'サムネイル' : 'Thumbnail';
-    searchHeaders[2].textContent = activeLanguage === 'ja' ? 'セット' : 'Set';
-    searchHeaders[3].textContent = activeLanguage === 'ja' ? '番号' : 'Number';
-    searchHeaders[4].textContent = activeLanguage === 'ja' ? 'レアリティ' : 'Rarity';
-    searchHeaders[5].textContent = activeLanguage === 'ja' ? '価格 (EN)' : 'Price (EN)';
-    searchHeaders[6].textContent = activeLanguage === 'ja' ? '価格 (JP)' : 'Price (JP)';
-  }
-}
-
-languageButtons.forEach((button) => {
-  button.addEventListener('click', () => {
-    activeLanguage = button.dataset.language;
-    languageButtons.forEach((btn) => {
-      btn.classList.toggle('active', btn === button);
-    });
-    applyUiTranslations();
-    localStorage.setItem('activeLanguage', activeLanguage);
-    
-    // Refresh the page with new language parameter
-    const params = new URLSearchParams(window.location.search);
-    params.set('lang', activeLanguage);
-    window.location.href = `/search?${params.toString()}`;
-  });
-});
-
-async function loadSetCodes() {
-  try {
-    const resp = await fetch('/api/sets');
-    const body = await resp.json().catch(() => ({ sets: [] }));
-    const choices = body.sets || [];
-    const selected = setCodeInput.value || '';
-
-    setCodeInput.innerHTML = '<option value="">Select set code</option>' + choices
-      .map((code) => `<option value="${code}">${code.toUpperCase()}</option>`)
-      .join('');
-
-    if (selected) {
-      setCodeInput.value = selected;
-    }
-  } catch (err) {
-    console.error('Failed to load set codes', err);
-  }
-}
-
-function renderRecentSets(sets) {
-  if (!recentSetsList) return;
-  recentSetsList.innerHTML = '';
-
-  if (!Array.isArray(sets) || sets.length === 0) {
-    const emptyItem = document.createElement('li');
-    emptyItem.className = 'recent-set-item';
-    emptyItem.textContent = activeLanguage === 'ja' ? 'セットが見つかりませんでした。' : 'No sets available.';
-    recentSetsList.appendChild(emptyItem);
-    return;
-  }
-
-  for (const set of sets) {
-    const item = document.createElement('li');
-    const link = document.createElement('a');
-    link.className = 'recent-set-item';
-    link.href = `/search?set=${encodeURIComponent(set.code)}&lang=${activeLanguage}`;
-
-    const container = document.createElement('div');
-    container.className = 'recent-set-item-flex';
-
-    const icon = document.createElement('img');
-    icon.className = 'recent-set-icon';
-    icon.src = 'https://svgs.scryfall.io/sets/' + set.code.toLowerCase() + '.svg';
-
-    const code = document.createElement('span');
-    code.className = 'recent-set-code';
-    code.textContent = set.code.toUpperCase();
-
-    const name = document.createElement('span');
-    name.className = 'recent-set-name';
-    name.textContent = set.name || set.code.toUpperCase();
-
-    const date = document.createElement('span');
-    date.className = 'recent-set-date';
-    if (set.release_date) {
-      const formatted = new Date(`${set.release_date}T00:00:00`).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-      date.textContent = formatted;
-    } else {
-      date.textContent = activeLanguage === 'ja' ? 'リリース日不明' : 'Date unknown';
-    }
-
-    link.appendChild(container);
-    container.appendChild(icon);
-    container.appendChild(code);
-    container.appendChild(name);
-    link.appendChild(date);
-    item.appendChild(link);
-    recentSetsList.appendChild(item);
-  }
-}
-
-async function loadRecentSets() {
-  try {
-    const resp = await fetch('/api/recent_sets?limit=12');
-    const body = await resp.json().catch(() => ({ sets: [] }));
-    renderRecentSets(body.sets || []);
-  } catch (err) {
-    console.error('Failed to load recent sets', err);
+    searchHeaders[0].textContent = lang === 'ja' ? 'タイトル' : 'Title';
+    searchHeaders[1].textContent = lang === 'ja' ? 'サムネイル' : 'Thumbnail';
+    searchHeaders[2].textContent = lang === 'ja' ? 'セット' : 'Set';
+    searchHeaders[3].textContent = lang === 'ja' ? '番号' : 'Number';
+    searchHeaders[4].textContent = lang === 'ja' ? 'レアリティ' : 'Rarity';
+    searchHeaders[5].textContent = lang === 'ja' ? '価格 (EN)' : 'Price (EN)';
+    searchHeaders[6].textContent = lang === 'ja' ? '価格 (JP)' : 'Price (JP)';
   }
 }
 
@@ -154,12 +54,13 @@ function showError(message) {
 }
 
 function renderSearchResults(results) {
+  const lang = AppLanguage.activeLanguage;
   searchResultsBody.innerHTML = '';
 
   if (!results || results.length === 0) {
     searchResultsBody.innerHTML = `
       <tr>
-        <td colspan="7">${activeLanguage === 'ja' ? '一致するカードが見つかりませんでした。' : 'No matching cards were found.'}</td>
+        <td colspan="7">${lang === 'ja' ? '一致するカードが見つかりませんでした。' : 'No matching cards were found.'}</td>
       </tr>
     `;
     return;
@@ -167,9 +68,9 @@ function renderSearchResults(results) {
 
   for (const item of results) {
     const row = document.createElement('tr');
-    const displayName = activeLanguage === 'ja' ? (item.name_jp || item.name_en) : (item.name_en || item.name_jp);
-    const thumb = activeLanguage === 'ja' ? (item.thumb_jp || item.thumb) : item.thumb;
-    const rarity = I18N[activeLanguage].rarity[item.rarity] || item.rarity || '—';
+    const displayName = lang === 'ja' ? (item.name_jp || item.name_en) : (item.name_en || item.name_jp);
+    const thumb = lang === 'ja' ? (item.thumb_jp || item.thumb) : item.thumb;
+    const rarity = (window.I18N || {})[lang]?.rarity?.[item.rarity] || item.rarity || '—';
     const recent = item.recent_prices || {};
     const jpPrice = recent.jp_nonfoil != null ? `¥${Number(recent.jp_nonfoil).toLocaleString()}` : '—';
     const jpFoilPrice = recent.jp_foil != null ? `¥${Number(recent.jp_foil).toLocaleString()}` : '—';
@@ -183,12 +84,12 @@ function renderSearchResults(results) {
     `;
     row.innerHTML = `
       <td>
-        <a href="/card/${encodeURIComponent(item.set_code)}/${encodeURIComponent(item.collector_number)}?lang=${activeLanguage}" style="color:inherit;text-decoration:none;display:inline-block;">
+        <a href="/card/${encodeURIComponent(item.set_code)}/${encodeURIComponent(item.collector_number)}?lang=${lang}" style="color:inherit;text-decoration:none;display:inline-block;">
           ${displayName || 'Unknown'}
         </a>
       </td>
       <td>
-        <a href="/card/${encodeURIComponent(item.set_code)}/${encodeURIComponent(item.collector_number)}?lang=${activeLanguage}" style="display:inline-block;">
+        <a href="/card/${encodeURIComponent(item.set_code)}/${encodeURIComponent(item.collector_number)}?lang=${lang}" style="display:inline-block;">
           <img src="${thumb || ''}" alt="${displayName || 'card'}" style="width:120px;height:auto;border-radius:6px;display:${thumb ? 'block' : 'none'};">
         </a>
       </td>
@@ -220,59 +121,16 @@ async function loadSearchResults(query, setCode) {
     }
     renderSearchResults(body.results || []);
   } catch (err) {
-    showError(t('noCardFound'));
+    showError(AppLanguage.t('noCardFound'));
   }
 }
 
-function restoreLanguage() {
-  const saved = localStorage.getItem('activeLanguage');
-  if (saved === 'ja' || saved === 'en') {
-    activeLanguage = saved;
-  }
-  
-  const params = new URLSearchParams(window.location.search);
-  const lang = params.get('lang');
-  if (lang === 'ja' || lang === 'en') {
-    activeLanguage = lang;
-  }
-  
-  languageButtons.forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.language === activeLanguage);
-  });
-}
-
-restoreLanguage();
+AppLanguage.restore();
 applyUiTranslations();
-loadSetCodes();
-loadRecentSets();
-
-lookupForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  errorEl.style.display = 'none';
-  errorEl.textContent = '';
-
-  const setCode = setCodeInput.value.trim();
-  const number = collectorNumberInput.value.trim();
-  if (!setCode) return;
-
-  if (!number) {
-    const params = new URLSearchParams({ set: setCode, lang: activeLanguage });
-    window.location.href = `/search?${params.toString()}`;
-    return;
-  }
-
-  const params = new URLSearchParams({ lang: activeLanguage });
-  window.location.href = `/card/${encodeURIComponent(setCode)}/${encodeURIComponent(number)}?${params.toString()}`;
-});
-
-searchForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const query = searchTermInput.value.trim();
-  if (!query) return;
-  const params = new URLSearchParams({ q: query, lang: activeLanguage });
-  window.location.href = `/search?${params.toString()}`;
-});
+AppLanguage.init(applyUiTranslations);
+loadSetCodes(setCodeInput);
+loadRecentSets(recentSetsList, AppLanguage.activeLanguage);
+initSearchForms();
 
 const params = new URLSearchParams(window.location.search);
 const query = params.get('q') || '';
@@ -284,5 +142,4 @@ if (setCode) {
   loadSearchResults(query, '');
 }
 
-// Reusable suggestion dropdown for the search box.
-initSuggestions(searchTermInput);
+// Name suggestions auto-initialize via the data-suggestions attribute.
