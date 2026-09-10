@@ -6,9 +6,10 @@ for Japanese market prices."
 
 ## Status
 
-Early scaffold. Working: set discovery, rate-limited crawling, parsing,
-tiered scheduling, storage. Not yet built: Scryfall identity matching and
-an API/frontend to actually browse the data.
+Working: set discovery, rate-limited crawling, parsing, tiered
+scheduling, storage, Scryfall identity matching, and the SvelteKit
+frontend (in `web/`) for browsing the data — including a production
+build served via Docker.
 
 ## Source of truth
 
@@ -267,11 +268,14 @@ scraper/
 config/
   set_code_overrides.toml  # manual Hareruya -> Scryfall set code overrides
 api/
-  main.py                  # FastAPI app: /api/prices lookup + serves the frontend
-  static/
-    index.html             # single-page card lookup UI (table + Chart.js history)
+  main.py                  # FastAPI app: /api/* JSON endpoints (sets, search, prices, ...)
+  static/                  # legacy vanilla-JS frontend (superseded by web/)
+web/                       # SvelteKit frontend (TypeScript, Svelte 5)
+  src/routes/              # home, /search, /card/[set]/[number]
+  src/lib/                 # api client, i18n, shared components, global styles
+  Dockerfile               # multi-stage build, serves `node build`
 requirements.txt
-docker-compose.yml         # Postgres + app + web containers (see Setup below)
+docker-compose.yml         # Postgres + app + web + frontend containers (see Setup below)
 Dockerfile
 ```
 
@@ -324,6 +328,29 @@ pip install -r requirements.txt
 export DATABASE_URL=postgresql+psycopg://localhost/jpy_mtg_prices
 python db.py                      # creates tables
 ```
+
+### Frontend (SvelteKit)
+
+The frontend lives in `web/` (SvelteKit + TypeScript + Svelte 5). It
+calls the FastAPI `/api/*` endpoints and needs no database access of
+its own.
+
+**Development** — run the API and the frontend separately; the Vite dev
+server proxies `/api/*` to `localhost:8000`:
+
+```bash
+uvicorn api.main:app --port 8000        # terminal 1
+cd web && npm install && npm run dev    # terminal 2 -> http://localhost:5173
+```
+
+**Docker** — `docker compose up -d frontend` builds and serves the
+production build on `http://localhost:5173`. The frontend is a
+standalone Node server (via `@sveltejs/adapter-node`); it calls the
+API from the browser, so the backend URL is baked in at build time via
+the `PUBLIC_API_BASE` build arg (set to `http://localhost:8000` in
+`docker-compose.yml`, since the browser reaches the API through the
+host-mapped port). The API has CORS enabled to allow these cross-origin
+calls.
 
 ## Usage
 

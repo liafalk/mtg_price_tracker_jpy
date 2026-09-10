@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_, select
@@ -29,6 +30,15 @@ from models import HareruyaSet, Price, Printing, ScryfallSet
 from scraper.parse import normalize_collector_number
 
 app = FastAPI(title="JPY MTG Prices")
+
+# The SvelteKit frontend (web/) runs in its own container and calls these
+# endpoints cross-origin, so allow all origins for the API routes.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
