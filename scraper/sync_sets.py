@@ -16,7 +16,6 @@ not on every crawl.
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 import re
 from typing import Any, Iterator
@@ -76,17 +75,6 @@ def _product_code_from_node(node: dict[str, Any]) -> str | None:
     return None
 
 
-def _parse_release_date(node: dict[str, Any]) -> dt.date | None:
-    raw = node.get("release_date")
-    if not raw:
-        return None
-    try:
-        return dt.datetime.strptime(raw, "%Y/%m/%d").date()
-    except ValueError:
-        logger.warning("Unparseable release_date: %r", raw)
-        return None
-
-
 async def fetch_side_menu() -> list[dict[str, Any]]:
     async with httpx.AsyncClient(timeout=20.0) as client:
         resp = await client.get(SIDE_MENU_URL)
@@ -112,7 +100,6 @@ def extract_set_rows(tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "hareruya_cardset_id": cardset_id,
                 "hareruya_product_code": _product_code_from_node(node),
                 "name_jp": node.get("label", ""),
-                "release_date": _parse_release_date(node),
             }
 
     return list(seen.values())
@@ -130,8 +117,6 @@ def upsert_sets(session: Session, rows: list[dict[str, Any]]) -> None:
         if existing_set:
             existing_set.hareruya_product_code = row["hareruya_product_code"]
             existing_set.name_jp = row["name_jp"]
-            if row["release_date"]:
-                existing_set.release_date = row["release_date"]
         else:
             session.add(HareruyaSet(**row))
 

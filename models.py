@@ -79,7 +79,6 @@ class HareruyaSet(Base):
     )
     scryfall_set: Mapped[ScryfallSet | None] = relationship(back_populates="hareruya_sets")
 
-    release_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     tier: Mapped[Tier] = mapped_column(Enum(Tier), default=Tier.cold, index=True)
     last_crawled_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 

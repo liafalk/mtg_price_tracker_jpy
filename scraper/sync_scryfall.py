@@ -338,10 +338,20 @@ async def resolve_scryfall_set_codes(
 
         unresolved.append(set_row)
 
+    # Keep the scryfall_set_code FK in sync with set_code. Both hold the
+    # same lowercase Scryfall code; the FK is what the ORM relationship
+    # (HareruyaSet.scryfall_set) and tiering join on.
+    fk_synced = 0
+    for set_row in session.execute(select(HareruyaSet)).scalars().all():
+        if set_row.set_code and set_row.scryfall_set_code != set_row.set_code:
+            set_row.scryfall_set_code = set_row.set_code
+            fk_synced += 1
+
     session.commit()
     logger.info(
-        "Resolved %d set codes automatically, %d from manual overrides",
-        resolved, overridden,
+        "Resolved %d set codes automatically, %d from manual overrides, "
+        "synced %d scryfall_set_code FKs",
+        resolved, overridden, fk_synced,
     )
     if unresolved:
         used_path = overrides_path or DEFAULT_OVERRIDES_PATH

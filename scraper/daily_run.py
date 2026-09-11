@@ -5,7 +5,8 @@ cron/systemd timer/etc, once a day:
     python -m scraper.daily_run
 
 What it does, in order:
-    1. Recompute tiers (hot/warm/cold) from each set's release_date.
+    1. Recompute tiers (hot/warm/cold) from each set's linked Scryfall
+       set's release_date.
     2. Pick today's crawl list (all hot, 1/7 of warm, 1/30 of cold).
     3. Crawl them sequentially through one rate-limited client.
 

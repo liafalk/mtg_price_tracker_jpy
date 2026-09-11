@@ -21,7 +21,7 @@ import datetime as dt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import HareruyaSet, Tier
+from models import HareruyaSet, ScryfallSet, Tier
 
 HOT_WINDOW_DAYS = 60
 WARM_WINDOW_DAYS = 365
@@ -31,18 +31,34 @@ COLD_ROTATION_DAYS = 30
 
 
 def assign_tiers(session: Session, today: dt.date | None = None) -> None:
-    """Recompute each set's tier from its release_date. Cheap; run daily
-    before picking today's crawl list."""
+    """Recompute each set's tier from its linked Scryfall set's release_date.
+    Cheap; run daily before picking today's crawl list."""
     today = today or dt.date.today()
 
     sets = session.execute(select(HareruyaSet)).scalars().all()
+
+    # Resolve each Hareruya set's release date from the canonical Scryfall
+    # set. The join key is `set_code` (lowercase Scryfall code); the
+    # `scryfall_set_code` FK is not reliably populated, so look up by code.
+    codes = {s.set_code for s in sets if s.set_code}
+    release_dates: dict[str, dt.date | None] = {}
+    if codes:
+        rows = session.execute(
+            select(ScryfallSet.code, ScryfallSet.release_date).where(
+                ScryfallSet.code.in_(codes)
+            )
+        ).all()
+        release_dates = {code: release_date for code, release_date in rows}
+
     for s in sets:
-        if s.release_date is None:
-            # Unknown release date (old/miscellaneous products) -> cold.
+        release_date = release_dates.get(s.set_code) if s.set_code else None
+        if release_date is None:
+            # No linked Scryfall set, or unknown release date
+            # (old/miscellaneous products) -> cold.
             s.tier = Tier.cold
             continue
 
-        age_days = (today - s.release_date).days
+        age_days = (today - release_date).days
         if age_days < 0:
             # Not yet released -- nothing to price yet.
             continue
