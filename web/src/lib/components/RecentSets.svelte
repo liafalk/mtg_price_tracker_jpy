@@ -24,6 +24,11 @@
 		return `/search?set=${encodeURIComponent(set.code)}&lang=${lang}`;
 	}
 
+	function displayName(set: RecentSet): string {
+		if (lang === 'ja' && set.name_jp) return set.name_jp;
+		return set.name;
+	}
+
 	$effect(() => {
 		fetchRecentSets(12)
 			.then((data) => {
@@ -47,15 +52,16 @@
 				<li class="recent-set-item">
 					<a
 						href={linkFor(set)}
-						class="recent-set-item-flex"
 						onclick={(e) => {
 							e.preventDefault();
 							onNavigate?.(linkFor(set));
 						}}
 					>
-						<img class="recent-set-icon" src={`https://svgs.scryfall.io/sets/${set.code.toLowerCase()}.svg`} alt="" />
-						<span class="recent-set-code">{set.code.toUpperCase()}</span>
-						<span class="recent-set-name">{set.name}</span>
+                        <div class="recent-set-item-flex">
+                            <img class="recent-set-icon" src={`https://svgs.scryfall.io/sets/${set.code.toLowerCase()}.svg`} alt="" />
+                            <span class="recent-set-code">{set.code.toUpperCase()}</span>
+                            <span class="recent-set-name">{displayName(set)}</span>
+                        </div>
 						<span class="recent-set-date">{formatDate(set.release_date)}</span>
 					</a>
 				</li>

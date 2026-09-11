@@ -60,7 +60,7 @@
 		<SetCodeAutocomplete
 			setCodes={setCodes}
 			placeholder={dict.setCodePlaceholder}
-			onPick={(code) => (setCode = code)}
+			bind:value={setCode}
 		/>
 		<input
 			id="collector-number"

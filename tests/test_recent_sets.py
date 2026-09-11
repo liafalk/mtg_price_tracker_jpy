@@ -7,7 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from api.main import app
-from models import HareruyaSet
+from models import ScryfallSet
 
 
 class QueryCheckingSession:
@@ -16,8 +16,8 @@ class QueryCheckingSession:
 
     def execute(self, stmt):
         sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert "sets.code" not in sql
-        assert "sets_hareruya" in sql or "set_code" in sql
+        assert "sets" in sql
+        assert "set_type" in sql
         return FakeResult(self._rows)
 
 
@@ -32,63 +32,51 @@ class FakeResult:
         return self._rows
 
 
-class FakeSession:
-    def execute(self, stmt):
-        return FakeResult(
-            [
-                HareruyaSet(
-                    id=1,
-                    hareruya_cardset_id=101,
-                    hareruya_product_code="woe",
-                    name_jp="ウィズダムの戦い",
-                    set_code="woe",
-                    release_date=dt.date(2024, 9, 20),
-                ),
-                HareruyaSet(
-                    id=2,
-                    hareruya_cardset_id=102,
-                    hareruya_product_code="mkm",
-                    name_jp="マキシマム・カップ",
-                    set_code="mkm",
-                    release_date=dt.date(2025, 2, 5),
-                ),
-            ]
-        )
+def make_set(code, name_en, name_jp, release_date):
+    return ScryfallSet(
+        id=f"uuid-{code}",
+        code=code,
+        name_en=name_en,
+        name_jp=name_jp,
+        release_date=release_date,
+        set_type="expansion",
+        parent_set_code=None,
+    )
 
 
 @contextmanager
-def fake_session_factory():
-    yield FakeSession()
+def fake_session_factory(rows):
+    yield QueryCheckingSession(rows)
 
 
 client = TestClient(app)
 
 
 def test_recent_sets_api_returns_latest_releases():
-    with patch("api.main.SessionLocal", fake_session_factory):
+    rows = [
+        make_set("mkm", "Maximum Cup", "マキシマム・カップ", dt.date(2025, 2, 5)),
+        make_set("woe", "Wizards' Edict", "ウィズダムの戦い", dt.date(2024, 9, 20)),
+    ]
+
+    with patch("api.main.SessionLocal", lambda: fake_session_factory(rows)):
         response = client.get("/api/recent_sets?limit=5")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["sets"][0]["code"] == "mkm"
-    assert data["sets"][0]["name"] == "マキシマム・カップ"
-    assert data["sets"][1]["code"] == "woe"
+    assert data["sets"][0]["code"] == "MKM"
+    assert data["sets"][0]["name"] == "Maximum Cup"
+    assert data["sets"][0]["name_jp"] == "マキシマム・カップ"
+    assert data["sets"][0]["release_date"] == "2025-02-05"
+    assert data["sets"][1]["code"] == "WOE"
 
 
-def test_recent_sets_query_uses_hareruya_set_schema():
+def test_recent_sets_query_uses_scryfall_set_schema():
     rows = [
-        HareruyaSet(
-            id=1,
-            hareruya_cardset_id=101,
-            hareruya_product_code="woe",
-            name_jp="ウィズダムの戦い",
-            set_code="woe",
-            release_date=dt.date(2024, 9, 20),
-        )
+        make_set("woe", "Wizards' Edict", "ウィズダムの戦い", dt.date(2024, 9, 20)),
     ]
 
-    with patch("api.main.SessionLocal", lambda: QueryCheckingSession(rows)):
+    with patch("api.main.SessionLocal", lambda: fake_session_factory(rows)):
         response = client.get("/api/recent_sets?limit=5")
 
     assert response.status_code == 200
-    assert response.json()["sets"][0]["code"] == "woe"
+    assert response.json()["sets"][0]["code"] == "WOE"

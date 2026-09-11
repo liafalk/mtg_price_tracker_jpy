@@ -88,6 +88,7 @@ def recent_sets(limit: int = Query(8, ge=1, le=20)) -> dict[str, list[dict[str, 
             {
                 "code": (row.code or "").upper(),
                 "name": row.name_en or "Unknown set",
+                "name_jp": row.name_jp,
                 "release_date": row.release_date.isoformat() if row.release_date else None,
             }
             for row in rows

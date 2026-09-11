@@ -10,6 +10,7 @@ an empty query.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -41,13 +42,71 @@ def _make_printing(
 
 
 class PrintingSession:
-    """Returns the same set of printings for every query."""
+    """Query-aware fake: inspects the compiled SQL and returns the rows the
+    real query would have returned (set codes, filtered printings, or
+    prices), so endpoint tests exercise the same filtering the API does."""
 
     def __init__(self, rows):
         self._rows = rows
 
     def execute(self, stmt):
+        sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+
+        if "DISTINCT" in sql and "set_code" in sql and "name_en" not in sql:
+            # /api/sets -- distinct set codes, sorted.
+            codes = sorted({r.set_code for r in self._rows if r.set_code})
+            return _Rows(codes)
+
+        if "prices" in sql:
+            # Second query of /api/search and /api/set_cards: prices for the
+            # printings the first query returned. No price rows are seeded,
+            # so this is always empty -- but it must not error. Checked before
+            # the printings branch because the prices query also references
+            # the printings table.
+            return _Rows([])
+
+        if "printings" in sql and "name_en" in sql:
+            return _Rows(self._filter_printings(sql))
+
         return _Rows(self._rows)
+
+    def _filter_printings(self, sql):
+        if "DISTINCT" in sql:
+            # /api/suggestions -- leading match, deduped by (name, set).
+            # SQLAlchemy renders ilike() as lower(col) LIKE lower('term%').
+            m = re.search(r"LIKE lower\('([^%']*)%'\)", sql)
+            term = m.group(1) if m else ""
+            seen = set()
+            rows = []
+            for r in sorted(self._rows, key=lambda r: (r.name_en or "")):
+                name_en = (r.name_en or "").lower()
+                name_jp = (r.name_jp or "").lower()
+                if not (name_en.startswith(term) or name_jp.startswith(term)):
+                    continue
+                key = (r.name_en, r.set_code)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(r)
+            return rows
+
+        m = re.search(r"LIKE '%([^']*)%'", sql)
+        if m:
+            # /api/search -- substring match on either name.
+            term = m.group(1)
+            return [
+                r
+                for r in self._rows
+                if term in (r.name_en or "").lower()
+                or term in (r.name_jp or "").lower()
+            ]
+
+        m = re.search(r"set_code = '([^']*)'", sql)
+        if m:
+            # /api/set_cards -- exact set code.
+            return [r for r in self._rows if r.set_code == m.group(1)]
+
+        return list(self._rows)
 
 
 class _Rows:
@@ -110,7 +169,7 @@ def test_suggestions_empty_query_returns_no_results():
 
 def test_suggestions_respects_limit():
     with patch("api.main.SessionLocal", printing_session_factory):
-        response = client.get("/api/suggestions?q=bolt&limit=2")
+        response = client.get("/api/suggestions?q=lightning&limit=2")
 
     assert response.status_code == 200
     assert len(response.json()["results"]) == 2
@@ -141,16 +200,33 @@ def test_list_set_codes_returns_sorted_codes():
 # --------------------------------------------------------------------------
 # /api/recent_sets
 # --------------------------------------------------------------------------
-def test_recent_sets_uses_hareruya_model():
-    from models import HareruyaSet
+def test_recent_sets_uses_scryfall_set_model():
+    from models import ScryfallSet
 
-    with patch("api.main.SessionLocal", printing_session_factory):
+    rows = [
+        ScryfallSet(
+            id="uuid-mkm",
+            code="mkm",
+            name_en="Maximum Cup",
+            name_jp="マキシマム・カップ",
+            release_date=dt.date(2025, 2, 5),
+            set_type="expansion",
+            parent_set_code=None,
+        )
+    ]
+
+    @contextmanager
+    def scryfall_session_factory():
+        yield PrintingSession(rows)
+
+    with patch("api.main.SessionLocal", scryfall_session_factory):
         response = client.get("/api/recent_sets?limit=3")
 
     assert response.status_code == 200
     data = response.json()
-    # No rows match the HareruyaSet query, so the list is empty.
-    assert data["sets"] == []
+    assert data["sets"][0]["code"] == "MKM"
+    assert data["sets"][0]["name"] == "Maximum Cup"
+    assert data["sets"][0]["name_jp"] == "マキシマム・カップ"
 
 
 # --------------------------------------------------------------------------
@@ -182,7 +258,7 @@ def test_set_cards_returns_cards_for_set():
 # --------------------------------------------------------------------------
 def test_prices_returns_404_for_unknown_card():
     with patch("api.main.SessionLocal", printing_session_factory):
-        response = client.get("/api/prices?set=doesnotexist?number=1")
+        response = client.get("/api/prices?set=doesnotexist&number=1")
 
     assert response.status_code == 404
 

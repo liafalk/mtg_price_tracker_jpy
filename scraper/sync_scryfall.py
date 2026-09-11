@@ -56,6 +56,7 @@ MTGJSON_SET_LIST_URL = "https://mtgjson.com/api/v5/SetList.json"
 MAINFEST_URL = "https://api.scryfall.com/cards/manifest"
 
 DEFAULT_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "config" / "set_code_overrides.toml"
+DEFAULT_NAME_JP_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "config" / "set_name_jp_overrides.toml"
 
 class BulkDataType(StrEnum):
     DEFAULT = "default_cards"
@@ -194,12 +195,22 @@ def fill_missing_japanese_set_names(session: Session) -> None:
     logger.info("Hareruya fallback Japanese set names: %d updated", updated)
 
 
-async def sync_scryfall_sets(session: Session) -> None:
-    """Refresh canonical sets and their Japanese names."""
+async def sync_scryfall_sets(
+    session: Session, name_jp_overrides_path: Path | None = None
+) -> None:
+    """Refresh canonical sets and their Japanese names.
+
+    Japanese names come from MTGJSON, with manual overrides from
+    config/set_name_jp_overrides.toml taking precedence.
+    """
     japanese_names = await fetch_mtgjson_japanese_names()
+    overrides = load_set_name_jp_overrides(name_jp_overrides_path)
+    if overrides:
+        logger.info("Loaded %d manual Japanese name overrides", len(overrides))
     rows = await fetch_scryfall_sets()
     for row in rows:
-        row["name_jp"] = japanese_names.get(row["code"].lower())
+        code = row["code"].lower()
+        row["name_jp"] = overrides.get(code) or japanese_names.get(code)
     upsert_scryfall_sets(session, rows)
 
 
@@ -231,6 +242,36 @@ def load_set_code_overrides(path: Path | None = None) -> dict[int, str]:
             continue
 
     return {int(k): v for k, v in data.items() if v}
+
+
+def load_set_name_jp_overrides(path: Path | None = None) -> dict[str, str]:
+    """Loads manual scryfall_set_code -> Japanese name overrides from a
+    TOML config file (default: config/set_name_jp_overrides.toml).
+
+    Returns {} if the file doesn't exist -- overrides are optional,
+    most sets get their Japanese name from MTGJSON. Every value must be
+    a string; anything else raises immediately rather than silently
+    no-op'ing on a malformed entry.
+    """
+    path = path or DEFAULT_NAME_JP_OVERRIDES_PATH
+    if not path.exists():
+        return {}
+
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+
+    for key, value in data.items():
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{path}: value for {key!r} must be a str, "
+                f"got {type(value).__name__}: {value!r}"
+            )
+        if not value:
+            # Commented-out template entries in the shipped config use
+            # empty strings as placeholders -- skip rather than apply.
+            continue
+
+    return {str(k).lower(): v for k, v in data.items() if v}
 
 
 async def resolve_scryfall_set_codes(
@@ -675,6 +716,12 @@ if __name__ == "__main__":
         default=DEFAULT_OVERRIDES_PATH,
         help="Path to the TOML file containing manual set-code overrides.",
     )
+    parser.add_argument(
+        "--name-jp-overrides",
+        type=Path,
+        default=DEFAULT_NAME_JP_OVERRIDES_PATH,
+        help="Path to the TOML file containing manual Japanese set-name overrides.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
@@ -700,7 +747,11 @@ if __name__ == "__main__":
     with SessionLocal() as session:
         match args.command:
             case "sets":
-                asyncio.run(sync_scryfall_sets(session))
+                asyncio.run(
+                    sync_scryfall_sets(
+                        session, name_jp_overrides_path=args.name_jp_overrides
+                    )
+                )
                 asyncio.run(resolve_scryfall_set_codes(session, overrides_path=args.overrides))
                 fill_missing_japanese_set_names(session)
             case "sync_en":

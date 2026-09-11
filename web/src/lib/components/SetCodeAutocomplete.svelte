@@ -4,21 +4,22 @@
 	let {
 		setCodes,
 		placeholder,
+		value = $bindable(''),
 		onPick
 	}: {
 		setCodes: string[];
 		placeholder?: string;
-		onPick: (code: string) => void;
+		value?: string;
+		onPick?: (code: string) => void;
 	} = $props();
 
 	const lang = $derived($language);
 
-	let term = $state('');
 	let open = $state(false);
 	let blurTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const filtered = $derived.by(() => {
-		const q = term.trim().toLowerCase();
+		const q = value.trim().toLowerCase();
 		if (!q) return setCodes;
 		return setCodes.filter((code) => code.toLowerCase().includes(q));
 	});
@@ -46,9 +47,9 @@
 	}
 
 	function pick(code: string) {
-		term = code;
+		value = code;
 		open = false;
-		onPick(code);
+		onPick?.(code);
 	}
 </script>
 
@@ -58,7 +59,7 @@
 		type="text"
 		data-set-code
 		placeholder={placeholder}
-		bind:value={term}
+		bind:value={value}
 		oninput={onInput}
 		onfocus={onFocus}
 		onblur={onBlur}
@@ -74,6 +75,7 @@
 					<button
 						type="button"
 						class="suggestion-link"
+						tabindex="-1"
 						onclick={() => pick(code)}
 					>
 						<span class="suggestion-name">{code.toUpperCase()}</span>

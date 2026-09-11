@@ -81,7 +81,7 @@
 		{:else}
 			{#each results as s (s.id)}
 				<li class="suggestion-item">
-					<a href={s.detail_url} onclick={(e) => { e.preventDefault(); pick(s.detail_url); }}>
+					<a href={s.detail_url} tabindex="-1" onclick={(e) => { e.preventDefault(); pick(s.detail_url); }}>
 						<span class="suggestion-name">{displayName(s)} - {s.set_code.toUpperCase()} {s.collector_number}</span>
 					</a>
 				</li>

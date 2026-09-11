@@ -4,7 +4,13 @@
 // default (empty) base works. In production the SvelteKit node server and
 // FastAPI live in separate containers, so set PUBLIC_API_BASE at build time
 // (e.g. PUBLIC_API_BASE=http://web:8000) to point at the backend.
-const API_BASE: string = import.meta.env.PUBLIC_API_BASE ?? '';
+//
+// SvelteKit exposes PUBLIC_* vars via $env (not import.meta.env, which only
+// sees VITE_* vars). The static public module is replaced at build time, so
+// the value is baked into the client bundle.
+import { PUBLIC_API_BASE } from '$env/static/public';
+
+const API_BASE: string = PUBLIC_API_BASE ?? '';
 
 export interface RecentPrices {
 	jp_nonfoil: number | null;
@@ -40,6 +46,7 @@ export interface Suggestion {
 export interface RecentSet {
 	code: string;
 	name: string;
+	name_jp: string | null;
 	release_date: string | null;
 }
 

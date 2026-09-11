@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
 	import { language, t, I18N, type RarityLabels } from '$lib/i18n';
@@ -32,7 +33,8 @@
 		{ key: 'foil', labelKey: 'inventoryFoil' as const }
 	];
 
-	let { set, number } = $props();
+	const set = $derived(page.params.set ?? '');
+	const number = $derived(page.params.number ?? '');
 
 	let data = $state<PricesResponse | null>(null);
 	let error = $state<string | null>(null);

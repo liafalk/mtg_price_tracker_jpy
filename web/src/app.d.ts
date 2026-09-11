@@ -7,6 +7,12 @@ declare global {
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}
+
+		// Public env vars (exposed to the client bundle at build time).
+		interface Env {
+			/** Base URL the browser uses to reach the FastAPI backend. */
+			PUBLIC_API_BASE?: string;
+		}
 	}
 }
 
