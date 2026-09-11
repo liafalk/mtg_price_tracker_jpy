@@ -119,6 +119,9 @@ class _Rows:
     def all(self):
         return self._rows
 
+    def first(self):
+        return self._rows[0] if self._rows else None
+
 
 @contextmanager
 def printing_session_factory():
@@ -152,7 +155,7 @@ def test_suggestions_returns_leading_matches_for_en_names():
 
 def test_suggestions_matches_japanese_names():
     with patch("api.main.SessionLocal", printing_session_factory):
-        response = client.get("/api/suggestions?q=%E9%BB%92%E5%B3%B6")  # 頭蓋
+        response = client.get("/api/suggestions?q=%E9%A0%AD%E8%93%8B")  # 頭蓋
 
     assert response.status_code == 200
     results = response.json()["results"]
