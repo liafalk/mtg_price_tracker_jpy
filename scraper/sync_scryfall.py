@@ -593,7 +593,10 @@ def sync_printings(session: Session, cards: Path | list[dict[str, Any]]) -> None
                 name_en=name_en,
                 scryfall_id=card["id"],
                 rarity=card.get("rarity"),
-                double_faced=double_faced
+                double_faced=double_faced,
+                oracle_id=card.get("oracle_id"),
+                tcgplayer_id=card.get("tcgplayer_id"),
+                cardmarket_id=card.get("cardmarket_id"),
             )
             printing.img_grid_uri = img_grid_uri
             printing.img_thumb_uri = img_thumb_uri
@@ -608,6 +611,9 @@ def sync_printings(session: Session, cards: Path | list[dict[str, Any]]) -> None
             printing.rarity = card.get("rarity")
             printing.scryfall_id = card["id"]
             printing.double_faced = double_faced
+            printing.oracle_id = card.get("oracle_id")
+            printing.tcgplayer_id = card.get("tcgplayer_id")
+            printing.cardmarket_id = card.get("cardmarket_id")
             printing.img_grid_uri = img_grid_uri
             printing.img_thumb_uri = img_thumb_uri
             printing.img_back_grid_uri = img_back_grid_uri

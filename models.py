@@ -102,9 +102,16 @@ class Printing(Base):
     name_jp: Mapped[str | None] = mapped_column(String(256))
     rarity: Mapped[str | None] = mapped_column(String(16))
 
-    scryfall_id: Mapped[str] = mapped_column(String(36), index=True, nullable=True)
+    scryfall_id: Mapped[str] = mapped_column(String(36), index=True)
     scryfall_id_jp: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
 
+    # ID representing all versions of a single card
+    oracle_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+
+    # Marketplace IDs
+    tcgplayer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cardmarket_id:  Mapped[int | None] = mapped_column(Integer, nullable=True)
+    
     img_grid_uri: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     img_thumb_uri: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     img_grid_uri_jp: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)

@@ -71,6 +71,10 @@ export interface CardInfo {
 	scryfall_id: string | null;
 	scryfall_id_jp: string | null;
 	img: CardImage;
+    oracle_id: string | null;
+    tcgplayer_id: number | null;
+    cardmarket_id: number | null;
+    
 }
 
 export interface LatestPrice {
