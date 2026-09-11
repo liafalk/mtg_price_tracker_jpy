@@ -8,6 +8,12 @@ which sets to crawl on a given day.
     cold -- everything else -> crawl on a slow rotation,
             roughly once a month (1/30th of the cold pool/day)
 
+On top of the rotation, any set that has gone stale -- i.e. it was due
+but was missed (scraper down, crawl failed) -- is crawled as a catch-up
+so it doesn't wait a full extra interval. Sets that have never been
+crawled (last_crawled_at is NULL) rely on the rotation for their first
+crawl, which avoids a first-run spike.
+
 This is intentionally simple: no ML, no per-card volatility detection.
 See project notes for why -- it captures the large majority of real
 price movement (new releases + actively-traded staples) for very
@@ -83,8 +89,24 @@ def _rotation_bucket(set_id: int, num_buckets: int, today: dt.date) -> int:
     return (set_id + day_index) % num_buckets
 
 
+def _is_overdue(set_row: HareruyaSet, interval_days: int, today: dt.date) -> bool:
+    """True if a set has gone stale: it was last crawled more than
+    `interval_days` ago. Never-crawled sets (last_crawled_at is NULL) are
+    not treated as overdue -- the rotation handles their first crawl, which
+    keeps the initial run from trying to crawl the whole pool at once.
+    """
+    last = set_row.last_crawled_at
+    if last is None:
+        return False
+    return (today - last.date()).days >= interval_days
+
+
 def sets_to_crawl_today(session: Session, today: dt.date | None = None) -> list[HareruyaSet]:
-    """Returns the list of Set rows that should be crawled today."""
+    """Returns the list of Set rows that should be crawled today.
+
+    A set is crawled if it falls in today's rotation bucket, or if it has
+    gone stale (missed a previous slot) and is due for a catch-up crawl.
+    """
     today = today or dt.date.today()
 
     hot = session.execute(select(HareruyaSet).where(HareruyaSet.tier == Tier.hot)).scalars().all()
@@ -93,12 +115,14 @@ def sets_to_crawl_today(session: Session, today: dt.date | None = None) -> list[
     warm_today = [
         s for s in warm_pool
         if _rotation_bucket(s.id, WARM_ROTATION_DAYS, today) == 0
+        or _is_overdue(s, WARM_ROTATION_DAYS, today)
     ]
 
     cold_pool = session.execute(select(HareruyaSet).where(HareruyaSet.tier == Tier.cold)).scalars().all()
     cold_today = [
         s for s in cold_pool
         if _rotation_bucket(s.id, COLD_ROTATION_DAYS, today) == 0
+        or _is_overdue(s, COLD_ROTATION_DAYS, today)
     ]
 
     return [*hot, *warm_today, *cold_today]
